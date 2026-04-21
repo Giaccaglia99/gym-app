@@ -4,6 +4,8 @@ const claseSchema = new mongoose.Schema({
   nombre: String,
   profesor: String,
   horario: String,
+  fecha: String,
+  hora: String,
   cupos: Number,
   inscritos: [
     {

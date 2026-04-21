@@ -3,6 +3,7 @@ import toast, { Toaster } from "react-hot-toast";
 import api from "./services/api";
 
 const VISTAS_PUBLICAS = {
+  INICIO: "inicio",
   LOGIN: "login",
   REGISTRO: "registro",
   VERIFICAR: "verificar"
@@ -22,12 +23,13 @@ const CLASES_DISPONIBLES = [
   "Clases personalizadas"
 ];
 
-const HORARIOS_DISPONIBLES = [
-  "Lunes, miercoles y viernes de 7:00 a 10:00",
-  "Lunes, miercoles y viernes de 14:00 a 19:00",
-  "Martes y jueves de 9:00 a 12:00",
-  "Martes y jueves de 17:00 a 21:00"
+const OBJETIVOS_USUARIO = [
+  { value: "perdida_peso", label: "Perdida de peso" },
+  { value: "masa_muscular", label: "Ganancia de masa muscular" },
+  { value: "mantenimiento", label: "Mantenimiento" },
+  { value: "mente_cuerpo", label: "Mente y cuerpo" }
 ];
+const WHATSAPP_LINK = "https://wa.me/+5493576477453";
 
 const menuBtn = {
   background: "transparent",
@@ -63,6 +65,14 @@ const btnStyle = {
   width: "100%"
 };
 
+const actionBtnStyle = {
+  border: "none",
+  padding: "6px",
+  borderRadius: "6px",
+  cursor: "pointer",
+  transition: "all 0.2s ease"
+};
+
 function getStoredUser() {
   try {
     const storedUser = localStorage.getItem("user");
@@ -73,21 +83,95 @@ function getStoredUser() {
   }
 }
 
+function getTodayKey() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function getHorariosDisponiblesPorFecha(fecha) {
+  if (!fecha) {
+    return [];
+  }
+
+  const dia = new Date(`${fecha}T00:00:00`).getDay();
+  const horariosPorDia = {
+    1: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
+    2: ["09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"],
+    3: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
+    4: ["09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"],
+    5: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
+  };
+
+  return horariosPorDia[dia] || [];
+}
+
+function getDiaLabel(fecha) {
+  if (!fecha) {
+    return "";
+  }
+
+  const dias = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const dia = new Date(`${fecha}T00:00:00`).getDay();
+  return dias[dia] || "";
+}
+
+function getUserInitials(user) {
+  if (!user?.nombre) {
+    return "LF";
+  }
+
+  const parts = user.nombre.trim().split(" ").filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("") || "LF";
+}
+
+function handleInputMouseEnter(e) {
+  e.currentTarget.style.borderColor = "#4ade80";
+  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(74,222,128,0.12)";
+}
+
+function handleInputMouseLeave(e) {
+  e.currentTarget.style.borderColor = "#1e293b";
+  e.currentTarget.style.boxShadow = "none";
+}
+
+function handlePrimaryMouseEnter(e) {
+  e.currentTarget.style.transform = "translateY(-2px)";
+  e.currentTarget.style.boxShadow = "0 14px 28px rgba(34,197,94,0.25)";
+}
+
+function handlePrimaryMouseLeave(e) {
+  e.currentTarget.style.transform = "translateY(0)";
+  e.currentTarget.style.boxShadow = "none";
+}
+
+function handleSecondaryHoverEnter(e) {
+  e.currentTarget.style.opacity = "0.85";
+  e.currentTarget.style.transform = "translateY(-1px)";
+}
+
+function handleSecondaryHoverLeave(e) {
+  e.currentTarget.style.opacity = "1";
+  e.currentTarget.style.transform = "translateY(0)";
+}
+
 function App() {
-  const [vista, setVista] = useState(VISTAS_PUBLICAS.LOGIN);
+  const [user, setUser] = useState(getStoredUser());
+  const [vista, setVista] = useState(VISTAS_PUBLICAS.INICIO);
   const [tiempo, setTiempo] = useState(TIEMPO_VERIFICACION);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
   const [profesor, setProfesor] = useState("");
-  const [horario, setHorario] = useState("");
+  const [fechaClase, setFechaClase] = useState("");
+  const [horaClase, setHoraClase] = useState("");
   const [cupos, setCupos] = useState("");
 
   const [editandoId, setEditandoId] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoProfesor, setNuevoProfesor] = useState("");
-  const [nuevoHorario, setNuevoHorario] = useState("");
+  const [nuevaFechaClase, setNuevaFechaClase] = useState("");
+  const [nuevaHoraClase, setNuevaHoraClase] = useState("");
   const [nuevosCupos, setNuevosCupos] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -95,9 +179,21 @@ function App() {
 
   const [codigo, setCodigo] = useState("");
   const [emailVerificar, setEmailVerificar] = useState("");
+  const [objetivoUsuario, setObjetivoUsuario] = useState(user?.objetivo || "mantenimiento");
+  const [planMensual, setPlanMensual] = useState(null);
+  const [guardandoObjetivo, setGuardandoObjetivo] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: "",
+    message: "",
+    confirmLabel: "Confirmar",
+    variant: "primary",
+    onConfirm: null
+  });
 
-  const user = getStoredUser();
+  const rutinaDeHoy = planMensual?.entries?.find((entry) => entry.fecha === getTodayKey());
   const esAdmin = user?.rol === "admin";
+  const userInitials = getUserInitials(user);
   const vistaPrivadaActiva = Object.values(VISTAS_PRIVADAS).includes(vista)
     ? vista
     : VISTAS_PRIVADAS.DASHBOARD;
@@ -114,6 +210,29 @@ function App() {
   useEffect(() => {
     fetchClases();
   }, []);
+
+  useEffect(() => {
+    setUser(getStoredUser());
+  }, []);
+
+  useEffect(() => {
+    if (!user?._id) {
+      return;
+    }
+
+    api.get("/perfil-plan")
+      .then((res) => {
+        setObjetivoUsuario(res.data.user.objetivo || "mantenimiento");
+        setPlanMensual(res.data.planMensual);
+        localStorage.setItem("user", JSON.stringify({
+          ...user,
+          objetivo: res.data.user.objetivo
+        }));
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+  }, [user]);
 
   useEffect(() => {
     if (user && Object.values(VISTAS_PUBLICAS).includes(vista)) {
@@ -144,11 +263,14 @@ function App() {
 
   const minutos = Math.floor(tiempo / 60);
   const segundos = tiempo % 60;
+  const horariosDisponibles = getHorariosDisponiblesPorFecha(fechaClase);
+  const nuevosHorariosDisponibles = getHorariosDisponiblesPorFecha(nuevaFechaClase);
 
   const limpiarFormularioClase = () => {
     setNombre("");
     setProfesor("");
-    setHorario("");
+    setFechaClase("");
+    setHoraClase("");
     setCupos("");
   };
 
@@ -157,6 +279,7 @@ function App() {
       const res = await api.post("/login", { email, password });
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("user", JSON.stringify(res.data.user));
+      setUser(res.data.user);
       window.location.reload();
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo iniciar sesion");
@@ -228,12 +351,60 @@ function App() {
   };
 
   const eliminarClase = async (id) => {
-    try {
-      await api.delete(`/clases/${id}`);
-      toast.success("Clase eliminada");
-      await fetchClases();
-    } catch (err) {
-      toast.error(err.response?.data?.mensaje || "No se pudo eliminar la clase");
+    setConfirmDialog({
+      open: true,
+      title: "Eliminar clase",
+      message: "Esta accion eliminara la clase y no se puede deshacer.",
+      confirmLabel: "Eliminar",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/clases/${id}`);
+          toast.success("Clase eliminada");
+          await fetchClases();
+        } catch (err) {
+          toast.error(err.response?.data?.mensaje || "No se pudo eliminar la clase");
+        }
+      }
+    });
+  };
+
+  const cerrarSesion = () => {
+    setConfirmDialog({
+      open: true,
+      title: "Cerrar sesion",
+      message: "¿Quieres cerrar sesion y salir de tu cuenta?",
+      confirmLabel: "Cerrar sesion",
+      variant: "primary",
+      onConfirm: () => {
+        setUser(null);
+        setVista(VISTAS_PUBLICAS.INICIO);
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setTimeout(() => {
+          window.location.replace("/");
+        }, 50);
+      }
+    });
+  };
+
+  const cerrarConfirmDialog = () => {
+    setConfirmDialog({
+      open: false,
+      title: "",
+      message: "",
+      confirmLabel: "Confirmar",
+      variant: "primary",
+      onConfirm: null
+    });
+  };
+
+  const ejecutarConfirmacion = async () => {
+    const action = confirmDialog.onConfirm;
+    cerrarConfirmDialog();
+
+    if (action) {
+      await action();
     }
   };
 
@@ -242,7 +413,8 @@ function App() {
       const response = await api.put(`/clases/${id}`, {
         nombre: nuevoNombre,
         profesor: nuevoProfesor,
-        horario: nuevoHorario,
+        fecha: nuevaFechaClase,
+        hora: nuevaHoraClase,
         cupos: nuevosCupos
       });
 
@@ -260,9 +432,11 @@ function App() {
       setEditandoId(null);
       setNuevoNombre("");
       setNuevoProfesor("");
-      setNuevoHorario("");
+      setNuevaFechaClase("");
+      setNuevaHoraClase("");
       setNuevosCupos("");
       toast.success("Clase actualizada");
+      await fetchClases();
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo actualizar la clase");
     }
@@ -270,12 +444,38 @@ function App() {
 
   const crearClase = async () => {
     try {
-      await api.post("/crear-clase", { nombre, profesor, horario, cupos });
+      await api.post("/crear-clase", {
+        nombre,
+        profesor,
+        fecha: fechaClase,
+        hora: horaClase,
+        cupos
+      });
       toast.success("Clase creada");
       limpiarFormularioClase();
       await fetchClases();
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo crear la clase");
+    }
+  };
+
+  const actualizarObjetivo = async () => {
+    try {
+      setGuardandoObjetivo(true);
+      const res = await api.put("/perfil-objetivo", {
+        objetivo: objetivoUsuario
+      });
+
+      setPlanMensual(res.data.planMensual);
+      localStorage.setItem("user", JSON.stringify({
+        ...user,
+        objetivo: res.data.user.objetivo
+      }));
+      toast.success("Objetivo actualizado");
+    } catch (err) {
+      toast.error(err.response?.data?.mensaje || "No se pudo actualizar el objetivo");
+    } finally {
+      setGuardandoObjetivo(false);
     }
   };
 
@@ -286,11 +486,122 @@ function App() {
   return (
     <>
       <Toaster />
+      {confirmDialog.open && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(2, 6, 23, 0.72)",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 50
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "420px",
+              background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98))",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "22px",
+              padding: "24px",
+              boxShadow: "0 30px 80px rgba(0,0,0,0.45)"
+            }}
+          >
+            <p style={{ margin: 0, color: "#f9a8d4", fontWeight: "900", letterSpacing: "0.6px" }}>
+              LOLIFIT
+            </p>
+            <h3 style={{ marginTop: "14px", marginBottom: "10px", fontSize: "24px" }}>
+              {confirmDialog.title}
+            </h3>
+            <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.7 }}>
+              {confirmDialog.message}
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                marginTop: "24px"
+              }}
+            >
+              <button
+                type="button"
+                onClick={cerrarConfirmDialog}
+                style={{
+                  flex: 1,
+                  background: "#111827",
+                  border: "1px solid #334155",
+                  padding: "12px",
+                  borderRadius: "12px",
+                  color: "white",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={handleSecondaryHoverEnter}
+                onMouseLeave={handleSecondaryHoverLeave}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={ejecutarConfirmacion}
+                style={{
+                  flex: 1,
+                  background: confirmDialog.variant === "danger"
+                    ? "linear-gradient(135deg, #ef4444, #dc2626)"
+                    : "linear-gradient(135deg, #22c55e, #16a34a)",
+                  border: "none",
+                  padding: "12px",
+                  borderRadius: "12px",
+                  color: "white",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={handlePrimaryMouseEnter}
+                onMouseLeave={handlePrimaryMouseLeave}
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {!user && vista === VISTAS_PUBLICAS.INICIO && (
+        <a
+          href={WHATSAPP_LINK}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            position: "fixed",
+            right: "24px",
+            bottom: "24px",
+            zIndex: 20,
+            background: "#22c55e",
+            color: "white",
+            textDecoration: "none",
+            width: "58px",
+            height: "58px",
+            borderRadius: "999px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: "900",
+            boxShadow: "0 20px 40px rgba(34,197,94,0.35)"
+          }}
+        >
+          WA
+        </a>
+      )}
 
       <div
         style={{
           minHeight: "100vh",
-          display: "flex",
           background: "linear-gradient(135deg, #020617, #0f172a, #020617)",
           color: "white",
           fontFamily: "system-ui, sans-serif"
@@ -299,37 +610,43 @@ function App() {
         {user && (
           <div
             style={{
-              width: "240px",
-              background: "rgba(2,6,23,0.9)",
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
+              alignItems: "center",
+              padding: "18px 30px",
+              background: "rgba(2,6,23,0.88)",
               backdropFilter: "blur(10px)",
-              padding: "25px",
-              borderRight: "1px solid #1e293b"
+              borderBottom: "1px solid #1e293b"
             }}
           >
-            <h2 style={{ color: "#22c55e", fontWeight: "bold", fontSize: "22px" }}>
-              LOLIFIT
-            </h2>
-
-            <button
-              style={menuBtn}
-              onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
+            <div
+              style={{
+                fontSize: "26px",
+                fontWeight: "900",
+                color: "#f9a8d4",
+                letterSpacing: "1px",
+                justifySelf: "start"
+              }}
             >
-              Perfil
-            </button>
+              LOLIFIT
+            </div>
 
             <div
               style={{
-                marginTop: "40px",
                 display: "flex",
-                flexDirection: "column",
-                gap: "15px"
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "22px"
               }}
             >
               <button
                 style={menuBtn}
                 onClick={() => setVista(VISTAS_PRIVADAS.DASHBOARD)}
               >
-                Dashboard
+                Inicio
               </button>
 
               <button
@@ -348,13 +665,44 @@ function App() {
                 </button>
               )}
             </div>
+
+            <button
+              style={{
+                justifySelf: "end",
+                width: "48px",
+                height: "48px",
+                borderRadius: "999px",
+                border: "1px solid rgba(249,168,212,0.35)",
+                background: "linear-gradient(135deg, #f472b6, #ec4899)",
+                color: "white",
+                fontWeight: "900",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 12px 24px rgba(236,72,153,0.2)"
+              }}
+              onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "0 16px 28px rgba(236,72,153,0.28)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 12px 24px rgba(236,72,153,0.2)";
+              }}
+            >
+              {userInitials}
+            </button>
           </div>
         )}
 
-        <div style={{ flex: 1, padding: "30px" }}>
+        <div style={{ padding: "30px" }}>
           {!user ? (
             <div
-              style={{
+              style={vista === VISTAS_PUBLICAS.INICIO ? {
+                width: "100%",
+                maxWidth: "1100px",
+                margin: "0 auto"
+              } : {
                 maxWidth: "400px",
                 margin: "auto",
                 marginTop: "100px",
@@ -363,6 +711,199 @@ function App() {
                 borderRadius: "10px"
               }}
             >
+              {vista === VISTAS_PUBLICAS.INICIO && (
+                <div
+                  style={{
+                    minHeight: "100vh",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "48px",
+                    paddingBottom: "50px"
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: "40px"
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "26px",
+                        fontWeight: "900",
+                        color: "#f9a8d4",
+                        letterSpacing: "1px"
+                      }}
+                    >
+                      LOLIFIT
+                    </div>
+
+                    <button
+                      onClick={() => setVista(VISTAS_PUBLICAS.LOGIN)}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid rgba(255,255,255,0.25)",
+                        color: "white",
+                        padding: "10px 18px",
+                        borderRadius: "999px",
+                        cursor: "pointer",
+                        fontWeight: "bold",
+                        transition: "all 0.2s ease"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "#ffffff";
+                        e.currentTarget.style.color = "#000000";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = "white";
+                      }}
+                    >
+                      Entrar
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      minHeight: "72vh",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      textAlign: "center",
+                      padding: "20px 0"
+                    }}
+                  >
+                    <h1
+                      style={{
+                        margin: 0,
+                        fontSize: "clamp(56px, 12vw, 120px)",
+                        lineHeight: 0.9,
+                        fontWeight: "900",
+                        textTransform: "uppercase",
+                        letterSpacing: "2px",
+                        background: "linear-gradient(135deg, #f472b6, #ffffff 65%)",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent"
+                      }}
+                    >
+                      Loli Fit
+                    </h1>
+
+                    <p
+                      style={{
+                        marginTop: "24px",
+                        marginBottom: "24px",
+                        color: "white",
+                        fontWeight: "800",
+                        fontSize: "24px"
+                      }}
+                    >
+                      Transforma tu cuerpo
+                    </p>
+
+                    <button
+                      style={{
+                        background: "linear-gradient(135deg, #f472b6, #ec4899)",
+                        border: "none",
+                        padding: "14px 28px",
+                        borderRadius: "999px",
+                        color: "white",
+                        fontWeight: "bold",
+                        fontSize: "16px",
+                        cursor: "pointer",
+                        boxShadow: "0 18px 40px rgba(236,72,153,0.28)",
+                        transition: "all 0.2s ease"
+                      }}
+                      onClick={() => setVista(VISTAS_PUBLICAS.REGISTRO)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "linear-gradient(135deg, #facc15, #d4a017)";
+                        e.currentTarget.style.boxShadow = "0 18px 40px rgba(250,204,21,0.3)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "linear-gradient(135deg, #f472b6, #ec4899)";
+                        e.currentTarget.style.boxShadow = "0 18px 40px rgba(236,72,153,0.28)";
+                      }}
+                    >
+                      Unirme a la plataforma
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      background: "rgba(15,23,42,0.88)",
+                      border: "1px solid rgba(244,114,182,0.18)",
+                      borderRadius: "28px",
+                      padding: "32px",
+                      boxShadow: "0 20px 60px rgba(0,0,0,0.28)"
+                    }}
+                  >
+                    <h2
+                      style={{
+                        marginTop: 0,
+                        marginBottom: "18px",
+                        fontSize: "clamp(28px, 5vw, 48px)",
+                        color: "#fff"
+                      }}
+                    >
+                      Un estudio pensado para tu mejor version
+                    </h2>
+                    <p
+                      style={{
+                        margin: 0,
+                        lineHeight: 1.8,
+                        fontSize: "17px",
+                        color: "rgba(255,255,255,0.9)"
+                      }}
+                    >
+                      LOLI FIT Studio es un estudio boutique femenino ubicado en el corazon de Arroyito.
+                      Creamos un espacio exclusivo para mujeres comprometidas con su bienestar, su crecimiento
+                      y su mejor version. Trabajamos con grupos reducidos y acompanamiento personalizado porque
+                      entendemos que los resultados reales requieren disciplina y decision. Elegimos calidad
+                      antes que cantidad, proceso antes que improvisacion y compromiso antes que excusas.
+                      Este es un lugar para mujeres que priorizan, invierten en si mismas y buscan superarse
+                      permanentemente. Bienvenida a tu mejor version y a tu estandar mas alto.
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      background: "rgba(15,23,42,0.88)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: "28px",
+                      padding: "16px"
+                    }}
+                  >
+                    <div
+                      style={{
+                        borderRadius: "18px",
+                        overflow: "hidden",
+                        height: "420px",
+                        minHeight: "420px",
+                        background: "#0f172a",
+                        border: "1px solid #1e293b"
+                      }}
+                    >
+                      <iframe
+                        title="Mapa LOLIFIT"
+                        src="https://www.google.com/maps?q=25%20de%20Mayo%201020%2C%20Arroyito%2C%20Cordoba%2C%20Argentina&z=16&output=embed"
+                        style={{
+                          border: 0,
+                          width: "100%",
+                          height: "100%",
+                          display: "block"
+                        }}
+                        allowFullScreen
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {vista === VISTAS_PUBLICAS.LOGIN && (
                 <div
                   style={{
@@ -382,6 +923,8 @@ function App() {
                     style={inputStyle}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
                   <input
                     type="password"
@@ -389,9 +932,16 @@ function App() {
                     style={inputStyle}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
 
-                  <button style={btnStyle} onClick={login}>
+                  <button
+                    style={btnStyle}
+                    onClick={login}
+                    onMouseEnter={handlePrimaryMouseEnter}
+                    onMouseLeave={handlePrimaryMouseLeave}
+                  >
                     Ingresar
                   </button>
 
@@ -413,12 +963,16 @@ function App() {
                     value={nombre}
                     onChange={(e) => setNombre(e.target.value)}
                     style={inputStyle}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
                   <input
                     placeholder="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     style={inputStyle}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
                   <input
                     type="password"
@@ -426,9 +980,16 @@ function App() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     style={inputStyle}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
 
-                  <button style={btnStyle} onClick={registro}>
+                  <button
+                    style={btnStyle}
+                    onClick={registro}
+                    onMouseEnter={handlePrimaryMouseEnter}
+                    onMouseLeave={handlePrimaryMouseLeave}
+                  >
                     Registrarse
                   </button>
 
@@ -454,12 +1015,24 @@ function App() {
                     value={codigo}
                     onChange={(e) => setCodigo(e.target.value)}
                     style={inputStyle}
+                    onMouseEnter={handleInputMouseEnter}
+                    onMouseLeave={handleInputMouseLeave}
                   />
 
-                  <button style={btnStyle} onClick={verificarCuenta}>
+                  <button
+                    style={btnStyle}
+                    onClick={verificarCuenta}
+                    onMouseEnter={handlePrimaryMouseEnter}
+                    onMouseLeave={handlePrimaryMouseLeave}
+                  >
                     Verificar
                   </button>
-                  <button style={btnStyle} onClick={reenviarCodigo}>
+                  <button
+                    style={btnStyle}
+                    onClick={reenviarCodigo}
+                    onMouseEnter={handlePrimaryMouseEnter}
+                    onMouseLeave={handlePrimaryMouseLeave}
+                  >
                     Reenviar codigo
                   </button>
                 </div>
@@ -468,20 +1041,34 @@ function App() {
           ) : (
             <>
               {vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD && (
-                <>
-                  <h1>Dashboard</h1>
-                  <p>Bienvenido {user.nombre}</p>
-                  <p>Tenes {misClases.length} clases reservadas.</p>
-
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginBottom: "16px"
+                  }}
+                >
                   <button
-                    style={btnStyle}
-                    onClick={() => {
-                      localStorage.clear();
-                      window.location.reload();
+                    style={{
+                      ...btnStyle,
+                      width: "auto",
+                      minWidth: "140px",
+                      marginTop: 0
                     }}
+                    onClick={cerrarSesion}
+                    onMouseEnter={handlePrimaryMouseEnter}
+                    onMouseLeave={handlePrimaryMouseLeave}
                   >
                     Logout
                   </button>
+                </div>
+              )}
+
+              {vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD && (
+                <>
+                  <h1>Inicio</h1>
+                  <p>Bienvenido {user.nombre}</p>
+                  <p>Tenes {misClases.length} clases reservadas.</p>
                 </>
               )}
 
@@ -491,7 +1078,102 @@ function App() {
                   <p>Nombre: {user.nombre}</p>
                   <p>Email: {user.email}</p>
                   <p>Rol: {user.rol}</p>
-                  <p>Clases reservadas: {misClases.length}</p>
+                  {misClases.length > 0 ? (
+                    misClases.map((clase) => (
+                      <p key={clase._id}>
+                        Clase reservada: {clase.nombre} - {clase.fecha || "Fecha sin asignar"} - {clase.hora || "Hora sin asignar"}
+                      </p>
+                    ))
+                  ) : (
+                    <p>Clase reservada: Ninguna</p>
+                  )}
+
+                  <div
+                    style={{
+                      marginTop: "30px",
+                      padding: "24px",
+                      background: "rgba(2,6,23,0.75)",
+                      borderRadius: "16px",
+                      border: "1px solid #1e293b"
+                    }}
+                  >
+                    <h2 style={{ marginTop: 0, marginBottom: "12px", color: "#22c55e" }}>
+                      Plan segun tu objetivo
+                    </h2>
+                    <p style={{ opacity: 0.8 }}>
+                      Elegi tu objetivo y vas a tener una rutina sugerida para hoy dentro de tu plan del mes.
+                    </p>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "12px",
+                        alignItems: "end",
+                        marginTop: "18px"
+                      }}
+                    >
+                      <div>
+                        <label style={{ display: "block", marginBottom: "8px", opacity: 0.85 }}>
+                          Objetivo
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={objetivoUsuario}
+                          onChange={(e) => setObjetivoUsuario(e.target.value)}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
+                        >
+                          {OBJETIVOS_USUARIO.map((objetivo) => (
+                            <option key={objetivo.value} value={objetivo.value}>
+                              {objetivo.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        style={btnStyle}
+                        onClick={actualizarObjetivo}
+                        disabled={guardandoObjetivo}
+                        onMouseEnter={handlePrimaryMouseEnter}
+                        onMouseLeave={handlePrimaryMouseLeave}
+                      >
+                        {guardandoObjetivo ? "Guardando..." : "Actualizar objetivo"}
+                      </button>
+                    </div>
+
+                    {planMensual && rutinaDeHoy && (
+                      <div style={{ marginTop: "24px" }}>
+                        <p style={{ marginBottom: "14px", opacity: 0.85 }}>
+                          Rutina de hoy: {rutinaDeHoy.fecha}
+                        </p>
+
+                        <div
+                          style={{
+                            background: "#0f172a",
+                            border: "1px solid #1e293b",
+                            borderRadius: "14px",
+                            padding: "18px"
+                          }}
+                        >
+                          <p style={{ margin: "0 0 10px", color: "#4ade80", fontWeight: "bold" }}>
+                            {rutinaDeHoy.titulo}
+                          </p>
+                          <p style={{ margin: "0 0 10px", opacity: 0.85 }}>
+                            {rutinaDeHoy.detalle}
+                          </p>
+                          <p style={{ margin: 0, fontSize: "13px", opacity: 0.75 }}>
+                            Foco del dia: {rutinaDeHoy.foco}
+                          </p>
+                        </div>
+
+                        <p style={{ marginTop: "14px", opacity: 0.7 }}>
+                          Plan mensual activo: {planMensual.monthKey}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -524,6 +1206,8 @@ function App() {
                           style={inputStyle}
                           value={nombre}
                           onChange={(e) => setNombre(e.target.value)}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
                         >
                           <option value="">Seleccionar clase</option>
                           {CLASES_DISPONIBLES.map((clase) => (
@@ -538,17 +1222,33 @@ function App() {
                           value={profesor}
                           onChange={(e) => setProfesor(e.target.value)}
                           style={inputStyle}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
+                        />
+
+                        <input
+                          type="date"
+                          style={inputStyle}
+                          value={fechaClase}
+                          onChange={(e) => {
+                            setFechaClase(e.target.value);
+                            setHoraClase("");
+                          }}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
                         />
 
                         <select
                           style={inputStyle}
-                          value={horario}
-                          onChange={(e) => setHorario(e.target.value)}
+                          value={horaClase}
+                          onChange={(e) => setHoraClase(e.target.value)}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
                         >
-                          <option value="">Seleccionar horario</option>
-                          {HORARIOS_DISPONIBLES.map((opcionHorario) => (
-                            <option key={opcionHorario} value={opcionHorario}>
-                              {opcionHorario}
+                          <option value="">Seleccionar hora</option>
+                          {horariosDisponibles.map((hora) => (
+                            <option key={hora} value={hora}>
+                              {hora}
                             </option>
                           ))}
                         </select>
@@ -559,12 +1259,25 @@ function App() {
                           value={cupos}
                           onChange={(e) => setCupos(e.target.value)}
                           style={inputStyle}
+                          onMouseEnter={handleInputMouseEnter}
+                          onMouseLeave={handleInputMouseLeave}
                         />
 
-                        <button style={btnStyle} onClick={crearClase}>
+                        <button
+                          style={btnStyle}
+                          onClick={crearClase}
+                          onMouseEnter={handlePrimaryMouseEnter}
+                          onMouseLeave={handlePrimaryMouseLeave}
+                        >
                           Crear clase
                         </button>
                       </div>
+                      {fechaClase && (
+                        <p style={{ marginTop: "8px", opacity: 0.75 }}>
+                          Dia elegido: {getDiaLabel(fechaClase) || "No disponible"}.
+                          {!horariosDisponibles.length && " Solo se puede crear de lunes a viernes."}
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -592,7 +1305,8 @@ function App() {
                             padding: "20px",
                             borderRadius: "16px",
                             border: "1px solid #1e293b",
-                            transition: "all 0.3s ease"
+                            transition: "all 0.3s ease",
+                            boxShadow: "0 12px 30px rgba(2,6,23,0.22)"
                           }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.transform = "translateY(-5px)";
@@ -620,6 +1334,8 @@ function App() {
                                 value={nuevoNombre}
                                 onChange={(e) => setNuevoNombre(e.target.value)}
                                 style={inputStyle}
+                                onMouseEnter={handleInputMouseEnter}
+                                onMouseLeave={handleInputMouseLeave}
                               >
                                 <option value="">Seleccionar clase</option>
                                 {CLASES_DISPONIBLES.map((claseOpcion) => (
@@ -634,17 +1350,33 @@ function App() {
                                 value={nuevoProfesor}
                                 onChange={(e) => setNuevoProfesor(e.target.value)}
                                 style={inputStyle}
+                                onMouseEnter={handleInputMouseEnter}
+                                onMouseLeave={handleInputMouseLeave}
+                              />
+
+                              <input
+                                type="date"
+                                value={nuevaFechaClase}
+                                onChange={(e) => {
+                                  setNuevaFechaClase(e.target.value);
+                                  setNuevaHoraClase("");
+                                }}
+                                style={inputStyle}
+                                onMouseEnter={handleInputMouseEnter}
+                                onMouseLeave={handleInputMouseLeave}
                               />
 
                               <select
-                                value={nuevoHorario}
-                                onChange={(e) => setNuevoHorario(e.target.value)}
+                                value={nuevaHoraClase}
+                                onChange={(e) => setNuevaHoraClase(e.target.value)}
                                 style={inputStyle}
+                                onMouseEnter={handleInputMouseEnter}
+                                onMouseLeave={handleInputMouseLeave}
                               >
                                 <option value="">Seleccionar horario</option>
-                                {HORARIOS_DISPONIBLES.map((opcionHorario) => (
-                                  <option key={opcionHorario} value={opcionHorario}>
-                                    {opcionHorario}
+                                {nuevosHorariosDisponibles.map((hora) => (
+                                  <option key={hora} value={hora}>
+                                    {hora}
                                   </option>
                                 ))}
                               </select>
@@ -655,6 +1387,8 @@ function App() {
                                 value={nuevosCupos}
                                 onChange={(e) => setNuevosCupos(e.target.value)}
                                 style={inputStyle}
+                                onMouseEnter={handleInputMouseEnter}
+                                onMouseLeave={handleInputMouseLeave}
                               />
 
                               <div
@@ -674,8 +1408,11 @@ function App() {
                                     borderRadius: "8px",
                                     color: "white",
                                     fontWeight: "bold",
-                                    cursor: "pointer"
+                                    cursor: "pointer",
+                                    transition: "all 0.2s ease"
                                   }}
+                                  onMouseEnter={handlePrimaryMouseEnter}
+                                  onMouseLeave={handlePrimaryMouseLeave}
                                 >
                                   Guardar
                                 </button>
@@ -685,7 +1422,8 @@ function App() {
                                     setEditandoId(null);
                                     setNuevoNombre("");
                                     setNuevoProfesor("");
-                                    setNuevoHorario("");
+                                    setNuevaFechaClase("");
+                                    setNuevaHoraClase("");
                                     setNuevosCupos("");
                                   }}
                                   style={{
@@ -695,8 +1433,11 @@ function App() {
                                     padding: "10px",
                                     borderRadius: "8px",
                                     color: "white",
-                                    cursor: "pointer"
+                                    cursor: "pointer",
+                                    transition: "all 0.2s ease"
                                   }}
+                                  onMouseEnter={handleSecondaryHoverEnter}
+                                  onMouseLeave={handleSecondaryHoverLeave}
                                 >
                                   Cancelar
                                 </button>
@@ -713,7 +1454,11 @@ function App() {
                               </p>
 
                               <p style={{ opacity: 0.8 }}>
-                                Horario: {clase.horario || "Sin asignar"}
+                                Fecha: {clase.fecha || "Sin asignar"}
+                              </p>
+
+                              <p style={{ opacity: 0.8 }}>
+                                Hora: {clase.hora || "Sin asignar"}
                               </p>
 
                               <p style={{ opacity: 0.7 }}>Cupos: {clase.cupos}</p>
@@ -735,6 +1480,8 @@ function App() {
                                   cursor: "pointer",
                                   transition: "0.2s"
                                 }}
+                                onMouseEnter={handlePrimaryMouseEnter}
+                                onMouseLeave={handlePrimaryMouseLeave}
                               >
                                 {loading ? "Cargando..." : yaInscripto ? "Reservado" : "Reservar"}
                               </button>
@@ -746,6 +1493,38 @@ function App() {
                               <p style={{ fontSize: "12px", opacity: 0.7 }}>
                                 Inscritos: {clase.inscritos?.length || 0}
                               </p>
+
+                              {clase.inscritos?.length > 0 && (
+                                <div
+                                  style={{
+                                    marginTop: "10px",
+                                    padding: "10px",
+                                    background: "#0f172a",
+                                    borderRadius: "10px",
+                                    border: "1px solid #1e293b"
+                                  }}
+                                >
+                                  {clase.inscritos.map((inscripto, index) => (
+                                    <div
+                                      key={inscripto._id || index}
+                                      style={{
+                                        paddingBottom: index === clase.inscritos.length - 1 ? 0 : "8px",
+                                        marginBottom: index === clase.inscritos.length - 1 ? 0 : "8px",
+                                        borderBottom: index === clase.inscritos.length - 1
+                                          ? "none"
+                                          : "1px solid rgba(148, 163, 184, 0.15)"
+                                      }}
+                                    >
+                                      <p style={{ margin: 0, fontSize: "13px", fontWeight: "bold" }}>
+                                        {inscripto.nombre || "Usuario"}
+                                      </p>
+                                      <p style={{ margin: "4px 0 0", fontSize: "12px", opacity: 0.75 }}>
+                                        {inscripto.email || "Sin email"}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -760,13 +1539,12 @@ function App() {
                               <button
                                 onClick={() => eliminarClase(clase._id)}
                                 style={{
+                                  ...actionBtnStyle,
                                   background: "#dc2626",
-                                  color: "white",
-                                  border: "none",
-                                  padding: "6px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer"
+                                  color: "white"
                                 }}
+                                onMouseEnter={handleSecondaryHoverEnter}
+                                onMouseLeave={handleSecondaryHoverLeave}
                               >
                                 Eliminar
                               </button>
@@ -776,17 +1554,17 @@ function App() {
                                   setEditandoId(clase._id);
                                   setNuevoNombre(clase.nombre);
                                   setNuevoProfesor(clase.profesor || "");
-                                  setNuevoHorario(clase.horario || "");
+                                  setNuevaFechaClase(clase.fecha || "");
+                                  setNuevaHoraClase(clase.hora || "");
                                   setNuevosCupos(String(clase.cupos));
                                 }}
                                 style={{
+                                  ...actionBtnStyle,
                                   background: "#f59e0b",
-                                  color: "black",
-                                  border: "none",
-                                  padding: "6px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer"
+                                  color: "black"
                                 }}
+                                onMouseEnter={handleSecondaryHoverEnter}
+                                onMouseLeave={handleSecondaryHoverLeave}
                               >
                                 Editar
                               </button>
