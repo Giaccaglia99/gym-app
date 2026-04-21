@@ -15,10 +15,11 @@ describe("App", () => {
     localStorage.clear();
   });
 
-  it("muestra la vista de login por defecto", async () => {
+  it("muestra la landing publica por defecto", async () => {
     render(<App />);
 
-    expect(screen.getByText("Bienvenido")).toBeInTheDocument();
+    expect(screen.getByText("Transforma tu cuerpo")).toBeInTheDocument();
+    expect(screen.getByText("Unirme a la plataforma")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith("/clases");
