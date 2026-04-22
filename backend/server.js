@@ -8,18 +8,47 @@ require("dotenv").config();
 
 const User = require("./models/user");
 const Clase = require("./models/Clase");
+const Reserva = require("./models/Reserva");
+const MovimientoCredito = require("./models/MovimientoCredito");
 
 const app = express();
 
+const PACKS_MENSUALES = [
+  {
+    id: "pack_2x_semana",
+    nombre: "2 veces por semana",
+    creditos: 9,
+    precioARS: 45000
+  },
+  {
+    id: "pack_3x_semana",
+    nombre: "3 veces por semana",
+    creditos: 10,
+    precioARS: 50000
+  }
+];
+const DIA_LABELS = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
 const CLASES_POR_DEFECTO = [
   {
-    nombre: "Clases personalizadas",
-    profesor: "Profesor a definir",
-    horario: "Lunes, miercoles y viernes de 7:00 a 10:00 y de 14:00 a 19:00. Martes y jueves de 8:00 a 10:00 y de 18:00 a 22:00",
-    fecha: "",
-    hora: "",
-    cupos: 12,
-    inscritos: []
+    nombre: "Musculacion",
+    profesor: "Profe LOLIFIT",
+    diaSemana: 1,
+    hora: "18:00",
+    cupoMaximo: 12
+  },
+  {
+    nombre: "Funcional",
+    profesor: "Profe LOLIFIT",
+    diaSemana: 2,
+    hora: "10:00",
+    cupoMaximo: 12
+  },
+  {
+    nombre: "Cardio",
+    profesor: "Profe LOLIFIT",
+    diaSemana: 3,
+    hora: "19:00",
+    cupoMaximo: 12
   }
 ];
 
@@ -71,25 +100,34 @@ function verificarToken(req, res, next) {
   }
 }
 
-function validarFechaYHora(fecha, hora) {
-  if (!fecha || !hora) {
+function getMonthKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getDayLabel(diaSemana) {
+  return DIA_LABELS[diaSemana] || "Dia";
+}
+
+function buildHorarioSemanal(diaSemana, hora) {
+  return `${getDayLabel(diaSemana)} a las ${hora}`;
+}
+
+function validarClaseSemanal({ nombre, profesor, diaSemana, hora, cupoMaximo }) {
+  if (!nombre || !profesor || diaSemana === undefined || !hora || !cupoMaximo) {
     return {
       valido: false,
-      mensaje: "Fecha y hora son obligatorias"
+      mensaje: "Nombre, profesor, dia, hora y cupo son obligatorios"
     };
   }
 
-  const fechaObj = new Date(`${fecha}T00:00:00`);
-
-  if (Number.isNaN(fechaObj.getTime())) {
+  if (!Number.isInteger(Number(diaSemana)) || Number(diaSemana) < 0 || Number(diaSemana) > 6) {
     return {
       valido: false,
-      mensaje: "Fecha invalida"
+      mensaje: "Dia invalido"
     };
   }
 
-  const day = fechaObj.getDay();
-  const ventanas = HORARIOS_PERMITIDOS[day];
+  const ventanas = HORARIOS_PERMITIDOS[Number(diaSemana)];
 
   if (!ventanas) {
     return {
@@ -107,25 +145,34 @@ function validarFechaYHora(fecha, hora) {
     };
   }
 
+  if (Number(cupoMaximo) <= 0) {
+    return {
+      valido: false,
+      mensaje: "El cupo debe ser mayor a 0"
+    };
+  }
+
   return {
     valido: true
   };
 }
 
-function construirHorario(fecha, hora) {
-  if (!fecha || !hora) {
-    return "";
-  }
-
-  return `${fecha} a las ${hora}`;
-}
-
 async function inicializarClasesPorDefecto() {
-  const cantidadClases = await Clase.countDocuments();
+  const cantidadPlantillas = await Clase.countDocuments({
+    diaSemana: { $exists: true }
+  });
 
-  if (cantidadClases === 0) {
-    await Clase.insertMany(CLASES_POR_DEFECTO);
-    console.log("Clases por defecto creadas");
+  if (cantidadPlantillas === 0) {
+    await Clase.deleteMany({});
+    await Reserva.deleteMany({});
+    await Clase.insertMany(
+      CLASES_POR_DEFECTO.map((clase) => ({
+        ...clase,
+        horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+        inscritos: []
+      }))
+    );
+    console.log("Clases semanales por defecto creadas");
   }
 }
 
@@ -134,10 +181,6 @@ mongoose.connection.once("open", () => {
     console.log("Error inicializando clases por defecto:", error);
   });
 });
-
-function getMonthKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function buildPlanTemplate(objetivo) {
   const templates = {
@@ -217,6 +260,85 @@ async function asegurarPlanMensual(user) {
   return user.planMensual;
 }
 
+function buildUserResponse(user) {
+  return {
+    _id: user._id,
+    nombre: user.nombre,
+    email: user.email,
+    rol: user.rol,
+    objetivo: user.objetivo,
+    creditos: user.creditos || 0,
+    packActivo: user.packActivo || null,
+    mesActivo: user.mesActivo || null,
+    fechaUltimaCompra: user.fechaUltimaCompra || null
+  };
+}
+
+function getPackById(packId) {
+  return PACKS_MENSUALES.find((pack) => pack.id === packId) || null;
+}
+
+async function registrarMovimiento({
+  userId,
+  tipo,
+  creditos,
+  montoARS = 0,
+  descripcion = "",
+  pack = null,
+  monthKey = getMonthKey()
+}) {
+  await MovimientoCredito.create({
+    userId,
+    tipo,
+    creditos,
+    montoARS,
+    descripcion,
+    pack,
+    monthKey
+  });
+}
+
+async function buildClasesResponse(monthKey = getMonthKey()) {
+  const clases = await Clase.find({
+    diaSemana: { $exists: true }
+  }).sort({ diaSemana: 1, hora: 1 });
+
+  const reservas = await Reserva.find({ monthKey })
+    .populate("userId", "nombre email")
+    .lean();
+
+  const reservasPorClase = reservas.reduce((acc, reserva) => {
+    const claseId = String(reserva.claseId);
+
+    if (!acc[claseId]) {
+      acc[claseId] = [];
+    }
+
+    acc[claseId].push(reserva.userId);
+    return acc;
+  }, {});
+
+  return clases.map((clase) => {
+    const inscritos = reservasPorClase[String(clase._id)] || [];
+    const reservasCount = inscritos.length;
+
+    return {
+      _id: clase._id,
+      nombre: clase.nombre,
+      profesor: clase.profesor,
+      diaSemana: clase.diaSemana,
+      diaLabel: getDayLabel(clase.diaSemana),
+      hora: clase.hora,
+      horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+      cupoMaximo: clase.cupoMaximo,
+      cuposDisponibles: Math.max(clase.cupoMaximo - reservasCount, 0),
+      reservasCount,
+      inscritos,
+      monthKey
+    };
+  });
+}
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -243,7 +365,10 @@ app.post("/registro", async (req, res) => {
     password: hashedPassword,
     codigoVerificacion: codigo,
     codigoExpira: expiracion,
-    verificado: false
+    verificado: false,
+    creditos: 0,
+    packActivo: null,
+    mesActivo: null
   });
 
   await nuevoUsuario.save();
@@ -287,7 +412,7 @@ app.post("/login", async (req, res) => {
     { expiresIn: "1d" }
   );
 
-  res.json({ token, user });
+  res.json({ token, user: buildUserResponse(user) });
 });
 
 app.get("/perfil-plan", verificarToken, async (req, res) => {
@@ -300,13 +425,7 @@ app.get("/perfil-plan", verificarToken, async (req, res) => {
   const planMensual = await asegurarPlanMensual(user);
 
   res.json({
-    user: {
-      _id: user._id,
-      nombre: user.nombre,
-      email: user.email,
-      rol: user.rol,
-      objetivo: user.objetivo
-    },
+    user: buildUserResponse(user),
     planMensual
   });
 });
@@ -330,14 +449,62 @@ app.put("/perfil-objetivo", verificarToken, async (req, res) => {
 
   res.json({
     mensaje: "Objetivo actualizado",
-    user: {
-      _id: user._id,
-      nombre: user.nombre,
-      email: user.email,
-      rol: user.rol,
-      objetivo: user.objetivo
-    },
+    user: buildUserResponse(user),
     planMensual: user.planMensual
+  });
+});
+
+app.get("/packs", (req, res) => {
+  res.json({
+    valorCreditoARS: 5000,
+    packs: PACKS_MENSUALES
+  });
+});
+
+app.get("/mis-movimientos", verificarToken, async (req, res) => {
+  const movimientos = await MovimientoCredito.find({ userId: req.userId })
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+
+  res.json(movimientos);
+});
+
+app.post("/comprar-pack", verificarToken, async (req, res) => {
+  const { packId } = req.body;
+  const pack = getPackById(packId);
+
+  if (!pack) {
+    return res.status(400).json({ mensaje: "Pack invalido" });
+  }
+
+  const user = await User.findById(req.userId);
+
+  if (!user) {
+    return res.status(404).json({ mensaje: "Usuario no encontrado" });
+  }
+
+  user.creditos = (user.creditos || 0) + pack.creditos;
+  user.packActivo = pack;
+  user.mesActivo = getMonthKey();
+  user.fechaUltimaCompra = new Date();
+  await user.save();
+
+  await registrarMovimiento({
+    userId: user._id,
+    tipo: "compra_online",
+    creditos: pack.creditos,
+    montoARS: pack.precioARS,
+    descripcion: `Compra online simulada del pack ${pack.nombre}`,
+    pack,
+    monthKey: user.mesActivo
+  });
+
+  res.json({
+    mensaje: "Pack comprado con exito",
+    user: buildUserResponse(user),
+    pack,
+    integracionesDisponibles: ["MercadoPago", "Stripe"]
   });
 });
 
@@ -393,50 +560,88 @@ app.post("/reenviar-codigo", async (req, res) => {
 });
 
 app.get("/clases", async (req, res) => {
-  const clases = await Clase.find().populate("inscritos", "nombre email");
+  const clases = await buildClasesResponse();
   res.json(clases);
 });
 
 app.get("/seed", async (req, res) => {
-  await Clase.deleteMany();
-  await Clase.insertMany(CLASES_POR_DEFECTO);
+  await Reserva.deleteMany({});
+  await MovimientoCredito.deleteMany({});
+  await Clase.deleteMany({});
+  await Clase.insertMany(
+    CLASES_POR_DEFECTO.map((clase) => ({
+      ...clase,
+      horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+      inscritos: []
+    }))
+  );
 
-  res.send("Clases creadas");
+  res.send("Clases semanales creadas");
 });
 
-app.post("/reservar", async (req, res) => {
+app.post("/reservar", verificarToken, async (req, res) => {
   try {
-    const { claseId, userId } = req.body;
+    const { claseId } = req.body;
+    const monthKey = getMonthKey();
+
     const clase = await Clase.findById(claseId);
+    const user = await User.findById(req.userId);
 
     if (!clase) {
       return res.status(404).json({ mensaje: "Clase no encontrada" });
     }
 
-    if (!userId) {
-      return res.status(400).json({ mensaje: "Falta userId" });
+    if (!user) {
+      return res.status(404).json({ mensaje: "Usuario no encontrado" });
     }
 
-    const yaInscripto = clase.inscritos.some(
-      (inscriptoId) => String(inscriptoId) === String(userId)
-    );
+    const yaInscripto = await Reserva.findOne({
+      userId: user._id,
+      claseId: clase._id,
+      monthKey
+    });
 
     if (yaInscripto) {
-      return res.status(400).json({ mensaje: "Ya estas inscrito" });
+      return res.status(400).json({ mensaje: "Ya estas inscrito a esta clase semanal este mes" });
     }
 
-    if (clase.cupos <= 0) {
+    const reservasClase = await Reserva.countDocuments({
+      claseId: clase._id,
+      monthKey
+    });
+
+    if (reservasClase >= clase.cupoMaximo) {
       return res.status(400).json({ mensaje: "Clase llena" });
     }
 
-    clase.cupos -= 1;
-    clase.inscritos.push(userId);
+    if ((user.creditos || 0) < 1) {
+      return res.status(400).json({ mensaje: "No tienes creditos disponibles" });
+    }
 
-    await clase.save();
+    await Reserva.create({
+      userId: user._id,
+      claseId: clase._id,
+      monthKey
+    });
 
-    res.json({ mensaje: "Reserva confirmada" });
+    user.creditos -= 1;
+    await user.save();
+
+    await registrarMovimiento({
+      userId: user._id,
+      tipo: "reserva",
+      creditos: -1,
+      montoARS: 0,
+      descripcion: `Reserva mensual en ${clase.nombre} - ${buildHorarioSemanal(clase.diaSemana, clase.hora)}`,
+      monthKey
+    });
+
+    res.json({
+      mensaje: "Reserva mensual confirmada",
+      user: buildUserResponse(user)
+    });
   } catch (error) {
-    console.log("ERROR REAL:", error);
+    console.log("ERROR RESERVAR:", error);
     res.status(500).json({ mensaje: "Error en servidor" });
   }
 });
@@ -444,46 +649,118 @@ app.post("/reservar", async (req, res) => {
 app.post("/crear-clase", verificarToken, async (req, res) => {
   const user = await User.findById(req.userId);
 
-  if (user.rol !== "admin") {
+  if (!user || user.rol !== "admin") {
     return res.status(403).json({ mensaje: "No autorizado" });
   }
 
-  const { nombre, profesor, fecha, hora, cupos } = req.body;
-
-  if (nombre !== "Clases personalizadas") {
-    return res.status(400).json({ mensaje: "Solo se permiten clases personalizadas" });
-  }
-
-  const validacion = validarFechaYHora(fecha, hora);
+  const { nombre, profesor, diaSemana, hora, cupoMaximo } = req.body;
+  const validacion = validarClaseSemanal({
+    nombre,
+    profesor,
+    diaSemana: Number(diaSemana),
+    hora,
+    cupoMaximo: Number(cupoMaximo)
+  });
 
   if (!validacion.valido) {
     return res.status(400).json({ mensaje: validacion.mensaje });
   }
 
+  const existe = await Clase.findOne({
+    diaSemana: Number(diaSemana),
+    hora
+  });
+
+  if (existe) {
+    return res.status(400).json({ mensaje: "Ya existe una clase en ese dia y horario" });
+  }
+
   const nuevaClase = new Clase({
     nombre,
     profesor,
-    horario: construirHorario(fecha, hora),
-    fecha,
+    diaSemana: Number(diaSemana),
     hora,
-    cupos,
+    cupoMaximo: Number(cupoMaximo),
+    horario: buildHorarioSemanal(Number(diaSemana), hora),
     inscritos: []
   });
 
   await nuevaClase.save();
 
-  res.json({ mensaje: "Clase creada" });
+  res.json({ mensaje: "Clase semanal creada", clase: nuevaClase });
+});
+
+app.get("/admin/usuarios", verificarToken, async (req, res) => {
+  const admin = await User.findById(req.userId);
+
+  if (!admin || admin.rol !== "admin") {
+    return res.status(403).json({ mensaje: "No autorizado" });
+  }
+
+  const usuarios = await User.find({}, "nombre email rol creditos packActivo mesActivo")
+    .sort({ nombre: 1 })
+    .lean();
+
+  res.json(usuarios);
+});
+
+app.post("/admin/asignar-creditos", verificarToken, async (req, res) => {
+  const admin = await User.findById(req.userId);
+
+  if (!admin || admin.rol !== "admin") {
+    return res.status(403).json({ mensaje: "No autorizado" });
+  }
+
+  const { userId, packId, creditos, motivo } = req.body;
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({ mensaje: "Usuario no encontrado" });
+  }
+
+  const pack = packId ? getPackById(packId) : null;
+  const creditosAsignados = pack ? pack.creditos : Number(creditos);
+
+  if (!creditosAsignados || Number(creditosAsignados) <= 0) {
+    return res.status(400).json({ mensaje: "Debes indicar un pack o una cantidad valida de creditos" });
+  }
+
+  user.creditos = (user.creditos || 0) + Number(creditosAsignados);
+  user.fechaUltimaCompra = new Date();
+  user.mesActivo = getMonthKey();
+
+  if (pack) {
+    user.packActivo = pack;
+  }
+
+  await user.save();
+
+  await registrarMovimiento({
+    userId: user._id,
+    tipo: motivo === "ajuste" ? "ajuste" : "carga_admin",
+    creditos: Number(creditosAsignados),
+    montoARS: pack ? pack.precioARS : Number(creditosAsignados) * 5000,
+    descripcion: motivo || "Carga manual desde admin",
+    pack,
+    monthKey: user.mesActivo
+  });
+
+  res.json({
+    mensaje: "Creditos asignados con exito",
+    user: buildUserResponse(user)
+  });
 });
 
 app.delete("/clases/:id", verificarToken, async (req, res) => {
   const user = await User.findById(req.userId);
 
-  if (user.rol !== "admin") {
+  if (!user || user.rol !== "admin") {
     return res.status(403).json({ mensaje: "No autorizado" });
   }
 
   const { id } = req.params;
 
+  await Reserva.deleteMany({ claseId: id });
   await Clase.findByIdAndDelete(id);
 
   res.json({ mensaje: "Clase eliminada" });
@@ -492,21 +769,32 @@ app.delete("/clases/:id", verificarToken, async (req, res) => {
 app.put("/clases/:id", verificarToken, async (req, res) => {
   const user = await User.findById(req.userId);
 
-  if (user.rol !== "admin") {
+  if (!user || user.rol !== "admin") {
     return res.status(403).json({ mensaje: "No autorizado" });
   }
 
   const { id } = req.params;
-  const { nombre, profesor, fecha, hora, cupos } = req.body;
-
-  if (nombre !== "Clases personalizadas") {
-    return res.status(400).json({ mensaje: "Solo se permiten clases personalizadas" });
-  }
-
-  const validacion = validarFechaYHora(fecha, hora);
+  const { nombre, profesor, diaSemana, hora, cupoMaximo } = req.body;
+  const validacion = validarClaseSemanal({
+    nombre,
+    profesor,
+    diaSemana: Number(diaSemana),
+    hora,
+    cupoMaximo: Number(cupoMaximo)
+  });
 
   if (!validacion.valido) {
     return res.status(400).json({ mensaje: validacion.mensaje });
+  }
+
+  const existe = await Clase.findOne({
+    _id: { $ne: id },
+    diaSemana: Number(diaSemana),
+    hora
+  });
+
+  if (existe) {
+    return res.status(400).json({ mensaje: "Ya existe una clase en ese dia y horario" });
   }
 
   const clase = await Clase.findByIdAndUpdate(
@@ -514,10 +802,10 @@ app.put("/clases/:id", verificarToken, async (req, res) => {
     {
       nombre,
       profesor,
-      fecha,
+      diaSemana: Number(diaSemana),
       hora,
-      horario: construirHorario(fecha, hora),
-      cupos
+      cupoMaximo: Number(cupoMaximo),
+      horario: buildHorarioSemanal(Number(diaSemana), hora)
     },
     { new: true }
   );

@@ -4,6 +4,18 @@ const userSchema = new mongoose.Schema({
   nombre: String,
   email: String,
   password: String,
+  creditos: {
+    type: Number,
+    default: 10
+  },
+  packActivo: {
+    id: String,
+    nombre: String,
+    creditos: Number,
+    precioARS: Number
+  },
+  mesActivo: String,
+  fechaUltimaCompra: Date,
   objetivo: {
     type: String,
     default: "mantenimiento"

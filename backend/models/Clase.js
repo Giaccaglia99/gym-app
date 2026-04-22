@@ -3,10 +3,10 @@ const mongoose = require("mongoose");
 const claseSchema = new mongoose.Schema({
   nombre: String,
   profesor: String,
-  horario: String,
-  fecha: String,
+  diaSemana: Number,
   hora: String,
-  cupos: Number,
+  cupoMaximo: Number,
+  horario: String,
   inscritos: [
     {
       type: mongoose.Schema.Types.ObjectId,

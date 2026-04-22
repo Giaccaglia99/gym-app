@@ -18,8 +18,27 @@ const VISTAS_PRIVADAS = {
 };
 
 const TIEMPO_VERIFICACION = 300;
-const CLASES_DISPONIBLES = [
-  "Clases personalizadas"
+const VALOR_CREDITO_ARS = 5000;
+const PACKS_MENSUALES = [
+  {
+    id: "pack_2x_semana",
+    nombre: "2 veces por semana",
+    creditos: 9,
+    precioARS: 45000
+  },
+  {
+    id: "pack_3x_semana",
+    nombre: "3 veces por semana",
+    creditos: 10,
+    precioARS: 50000
+  }
+];
+const DIAS_SEMANA = [
+  { value: 1, label: "Lunes" },
+  { value: 2, label: "Martes" },
+  { value: 3, label: "Miercoles" },
+  { value: 4, label: "Jueves" },
+  { value: 5, label: "Viernes" }
 ];
 
 const OBJETIVOS_USUARIO = [
@@ -107,12 +126,21 @@ function getTodayKey() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }
 
-function getHorariosDisponiblesPorFecha(fecha) {
-  if (!fecha) {
-    return [];
-  }
+function getCurrentMonthKey() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
 
-  const dia = new Date(`${fecha}T00:00:00`).getDay();
+function getTodayWeekday() {
+  return new Date().getDay();
+}
+
+function getDiaLabel(diaSemana) {
+  const found = DIAS_SEMANA.find((dia) => dia.value === Number(diaSemana));
+  return found?.label || "";
+}
+
+function getHorariosDisponiblesPorDia(diaSemana) {
   const horariosPorDia = {
     1: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
     2: ["08:00", "09:00", "10:00", "18:00", "19:00", "20:00", "21:00", "22:00"],
@@ -121,17 +149,7 @@ function getHorariosDisponiblesPorFecha(fecha) {
     5: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
   };
 
-  return horariosPorDia[dia] || [];
-}
-
-function getDiaLabel(fecha) {
-  if (!fecha) {
-    return "";
-  }
-
-  const dias = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
-  const dia = new Date(`${fecha}T00:00:00`).getDay();
-  return dias[dia] || "";
+  return horariosPorDia[Number(diaSemana)] || [];
 }
 
 function getUserInitials(user) {
@@ -144,20 +162,27 @@ function getUserInitials(user) {
 }
 
 function getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin }) {
-  const disponiblesHoy = clases.filter((clase) => clase.fecha === getTodayKey()).length;
+  const disponiblesHoy = clases.filter((clase) => Number(clase.diaSemana) === getTodayWeekday()).length;
+  const packLabel = user?.packActivo?.nombre || "Sin pack activo";
 
   return [
     {
-      title: "Clases activas",
+      title: "Clases semanales",
       value: String(clases.length),
-      subtitle: "Agenda general disponible",
+      subtitle: "Agenda recurrente activa",
       accent: "#22c55e"
     },
     {
       title: "Tus reservas",
       value: String(misClases.length),
-      subtitle: misClases[0]?.nombre || "Sin reservas activas",
+      subtitle: misClases[0]?.horario || "Sin reservas activas",
       accent: "#f472b6"
+    },
+    {
+      title: "Creditos",
+      value: String(user?.creditos || 0),
+      subtitle: packLabel,
+      accent: "#facc15"
     },
     {
       title: "Rutina de hoy",
@@ -166,15 +191,9 @@ function getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin }) {
       accent: "#38bdf8"
     },
     {
-      title: esAdmin ? "Modo actual" : "Bienestar",
-      value: esAdmin ? "Admin" : "Fitness",
-      subtitle: user?.objetivo ? user.objetivo.replaceAll("_", " ") : "Seguimiento activo",
-      accent: "#facc15"
-    },
-    {
-      title: "Clases de hoy",
-      value: String(disponiblesHoy),
-      subtitle: "Agenda del dia actual",
+      title: esAdmin ? "Modo actual" : "Agenda de hoy",
+      value: esAdmin ? "Admin" : `${disponiblesHoy}`,
+      subtitle: esAdmin ? "Gestion semanal activa" : "Bloques disponibles hoy",
       accent: "#fb7185"
     }
   ];
@@ -185,9 +204,7 @@ function formatClaseResumen(clase) {
     return "Ninguna";
   }
 
-  const fechaTexto = clase.fecha ? `${getDiaLabel(clase.fecha)} ${clase.fecha}` : "Fecha a confirmar";
-  const horaTexto = clase.hora || "Horario a confirmar";
-  return `${clase.nombre} - ${fechaTexto} - ${horaTexto}`;
+  return `${clase.nombre} - ${clase.diaLabel || getDiaLabel(clase.diaSemana)} - ${clase.hora}`;
 }
 
 function handleInputMouseEnter(e) {
@@ -420,25 +437,33 @@ function App() {
   const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
   const [profesor, setProfesor] = useState("");
-  const [fechaClase, setFechaClase] = useState("");
+  const [diaSemanaClase, setDiaSemanaClase] = useState("");
   const [horaClase, setHoraClase] = useState("");
-  const [cupos, setCupos] = useState("");
+  const [cupoMaximo, setCupoMaximo] = useState("");
 
   const [editandoId, setEditandoId] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoProfesor, setNuevoProfesor] = useState("");
-  const [nuevaFechaClase, setNuevaFechaClase] = useState("");
+  const [nuevoDiaSemanaClase, setNuevoDiaSemanaClase] = useState("");
   const [nuevaHoraClase, setNuevaHoraClase] = useState("");
-  const [nuevosCupos, setNuevosCupos] = useState("");
+  const [nuevoCupoMaximo, setNuevoCupoMaximo] = useState("");
 
-  const [loading, setLoading] = useState(false);
+  const [loadingReservaId, setLoadingReservaId] = useState(null);
   const [clases, setClases] = useState([]);
-
   const [codigo, setCodigo] = useState("");
   const [emailVerificar, setEmailVerificar] = useState("");
   const [objetivoUsuario, setObjetivoUsuario] = useState(user?.objetivo || "mantenimiento");
   const [planMensual, setPlanMensual] = useState(null);
   const [guardandoObjetivo, setGuardandoObjetivo] = useState(false);
+  const [comprandoPackId, setComprandoPackId] = useState(null);
+  const [movimientos, setMovimientos] = useState([]);
+  const [adminUsuarios, setAdminUsuarios] = useState([]);
+  const [adminSearch, setAdminSearch] = useState("");
+  const [adminUserId, setAdminUserId] = useState("");
+  const [adminPackId, setAdminPackId] = useState("");
+  const [adminCreditosManual, setAdminCreditosManual] = useState("");
+  const [adminMotivo, setAdminMotivo] = useState("pago efectivo");
+  const [asignandoCreditos, setAsignandoCreditos] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
@@ -458,13 +483,44 @@ function App() {
   const isTablet = viewportWidth < 1100;
   const minutos = Math.floor(tiempo / 60);
   const segundos = tiempo % 60;
-  const horariosDisponibles = getHorariosDisponiblesPorFecha(fechaClase);
-  const nuevosHorariosDisponibles = getHorariosDisponiblesPorFecha(nuevaFechaClase);
-  const clasesVisibles = clases.filter((clase) => clase.nombre === "Clases personalizadas");
-  const misClases = clasesVisibles.filter((clase) =>
+  const horariosDisponibles = getHorariosDisponiblesPorDia(diaSemanaClase);
+  const nuevosHorariosDisponibles = getHorariosDisponiblesPorDia(nuevoDiaSemanaClase);
+  const misClases = clases.filter((clase) =>
     clase.inscritos?.some((inscripto) => inscripto._id === user?._id)
   );
-  const metricasDashboard = getMetricData({ clases: clasesVisibles, misClases, rutinaDeHoy, user, esAdmin });
+  const metricasDashboard = getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin });
+  const clasesDeHoy = clases.filter((clase) => Number(clase.diaSemana) === getTodayWeekday());
+
+  const syncStoredUser = (nextUser) => {
+    setUser(nextUser);
+    localStorage.setItem("user", JSON.stringify(nextUser));
+  };
+
+  const fetchMovimientos = async () => {
+    if (!user?._id) {
+      return;
+    }
+
+    try {
+      const res = await api.get("/mis-movimientos");
+      setMovimientos(res.data);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  const fetchAdminUsuarios = async () => {
+    if (!user?._id || !esAdmin) {
+      return;
+    }
+
+    try {
+      const res = await api.get("/admin/usuarios");
+      setAdminUsuarios(res.data);
+    } catch (err) {
+      console.log(err);
+    }
+  };
 
   const fetchClases = async () => {
     try {
@@ -489,10 +545,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    setUser(getStoredUser());
-  }, []);
-
-  useEffect(() => {
     if (!user?._id) {
       return;
     }
@@ -501,15 +553,47 @@ function App() {
       .then((res) => {
         setObjetivoUsuario(res.data.user.objetivo || "mantenimiento");
         setPlanMensual(res.data.planMensual);
-        localStorage.setItem("user", JSON.stringify({
-          ...user,
-          objetivo: res.data.user.objetivo
-        }));
+        setUser((prevUser) => {
+          const nextUser = {
+            ...(prevUser || {}),
+            ...res.data.user
+          };
+          localStorage.setItem("user", JSON.stringify(nextUser));
+          return nextUser;
+        });
       })
       .catch((err) => {
         console.log(err);
       });
-  }, [user]);
+  }, [user?._id]);
+
+  useEffect(() => {
+    if (!user?._id) {
+      setMovimientos([]);
+      setAdminUsuarios([]);
+      return;
+    }
+
+    api.get("/mis-movimientos")
+      .then((res) => {
+        setMovimientos(res.data);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+
+    if (esAdmin) {
+      api.get("/admin/usuarios")
+        .then((res) => {
+          setAdminUsuarios(res.data);
+        })
+        .catch((err) => {
+          console.log(err);
+        });
+    } else {
+      setAdminUsuarios([]);
+    }
+  }, [user?._id, esAdmin]);
 
   useEffect(() => {
     if (user && Object.values(VISTAS_PUBLICAS).includes(vista)) {
@@ -541,18 +625,18 @@ function App() {
   const limpiarFormularioClase = () => {
     setNombre("");
     setProfesor("");
-    setFechaClase("");
+    setDiaSemanaClase("");
     setHoraClase("");
-    setCupos("");
+    setCupoMaximo("");
   };
 
   const login = async () => {
     try {
       const res = await api.post("/login", { email, password });
       localStorage.setItem("token", res.data.token);
-      localStorage.setItem("user", JSON.stringify(res.data.user));
-      setUser(res.data.user);
-      window.location.reload();
+      syncStoredUser(res.data.user);
+      setVista(VISTAS_PRIVADAS.DASHBOARD);
+      toast.success("Sesion iniciada");
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo iniciar sesion");
     }
@@ -599,6 +683,60 @@ function App() {
     }
   };
 
+  const comprarPack = async (pack) => {
+    try {
+      setComprandoPackId(pack.id);
+      const res = await api.post("/comprar-pack", { packId: pack.id });
+      syncStoredUser({
+        ...user,
+        ...res.data.user
+      });
+      await fetchMovimientos();
+      toast.success(`Pack activado: ${pack.nombre}`);
+    } catch (err) {
+      toast.error(err.response?.data?.mensaje || "No se pudo comprar el pack");
+    } finally {
+      setComprandoPackId(null);
+    }
+  };
+
+  const asignarCreditosManual = async () => {
+    try {
+      setAsignandoCreditos(true);
+      const payload = {
+        userId: adminUserId,
+        motivo: adminMotivo
+      };
+
+      if (adminPackId) {
+        payload.packId = adminPackId;
+      } else {
+        payload.creditos = Number(adminCreditosManual);
+      }
+
+      const res = await api.post("/admin/asignar-creditos", payload);
+      toast.success("Creditos asignados");
+
+      if (String(user?._id) === String(adminUserId)) {
+        syncStoredUser({
+          ...user,
+          ...res.data.user
+        });
+      }
+
+      setAdminUserId("");
+      setAdminPackId("");
+      setAdminCreditosManual("");
+      setAdminMotivo("pago efectivo");
+      await fetchAdminUsuarios();
+      await fetchMovimientos();
+    } catch (err) {
+      toast.error(err.response?.data?.mensaje || "No se pudieron asignar los creditos");
+    } finally {
+      setAsignandoCreditos(false);
+    }
+  };
+
   const reservar = async (claseId) => {
     if (!user?._id) {
       toast.error("Tenes que iniciar sesion");
@@ -606,17 +744,18 @@ function App() {
     }
 
     try {
-      setLoading(true);
-      await api.post("/reservar", {
-        claseId,
-        userId: user._id
+      setLoadingReservaId(claseId);
+      const res = await api.post("/reservar", { claseId });
+      syncStoredUser({
+        ...user,
+        ...res.data.user
       });
-      toast.success("Reserva confirmada");
+      toast.success("Reserva mensual confirmada");
       await fetchClases();
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo reservar la clase");
     } finally {
-      setLoading(false);
+      setLoadingReservaId(null);
     }
   };
 
@@ -624,7 +763,7 @@ function App() {
     setConfirmDialog({
       open: true,
       title: "Eliminar clase",
-      message: "Esta accion eliminara la clase y no se puede deshacer.",
+      message: "Esta accion eliminara la plantilla semanal y sus reservas activas del mes.",
       confirmLabel: "Eliminar",
       variant: "danger",
       onConfirm: async () => {
@@ -654,9 +793,9 @@ function App() {
         setEditandoId(null);
         setNuevoNombre("");
         setNuevoProfesor("");
-        setNuevaFechaClase("");
+        setNuevoDiaSemanaClase("");
         setNuevaHoraClase("");
-        setNuevosCupos("");
+        setNuevoCupoMaximo("");
         setCodigo("");
         setEmail("");
         setPassword("");
@@ -689,32 +828,21 @@ function App() {
 
   const editarClase = async (id) => {
     try {
-      const response = await api.put(`/clases/${id}`, {
+      await api.put(`/clases/${id}`, {
         nombre: nuevoNombre,
         profesor: nuevoProfesor,
-        fecha: nuevaFechaClase,
+        diaSemana: Number(nuevoDiaSemanaClase),
         hora: nuevaHoraClase,
-        cupos: nuevosCupos
+        cupoMaximo: Number(nuevoCupoMaximo)
       });
-
-      setClases((prevClases) =>
-        prevClases.map((clase) =>
-          clase._id === id
-            ? {
-                ...clase,
-                ...response.data
-              }
-            : clase
-        )
-      );
 
       setEditandoId(null);
       setNuevoNombre("");
       setNuevoProfesor("");
-      setNuevaFechaClase("");
+      setNuevoDiaSemanaClase("");
       setNuevaHoraClase("");
-      setNuevosCupos("");
-      toast.success("Clase actualizada");
+      setNuevoCupoMaximo("");
+      toast.success("Clase semanal actualizada");
       await fetchClases();
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo actualizar la clase");
@@ -726,11 +854,11 @@ function App() {
       await api.post("/crear-clase", {
         nombre,
         profesor,
-        fecha: fechaClase,
+        diaSemana: Number(diaSemanaClase),
         hora: horaClase,
-        cupos
+        cupoMaximo: Number(cupoMaximo)
       });
-      toast.success("Clase creada");
+      toast.success("Clase semanal creada");
       limpiarFormularioClase();
       await fetchClases();
     } catch (err) {
@@ -746,10 +874,10 @@ function App() {
       });
 
       setPlanMensual(res.data.planMensual);
-      localStorage.setItem("user", JSON.stringify({
+      syncStoredUser({
         ...user,
-        objetivo: res.data.user.objetivo
-      }));
+        ...res.data.user
+      });
       toast.success("Objetivo actualizado");
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo actualizar el objetivo");
@@ -762,23 +890,24 @@ function App() {
     setEditandoId(clase._id);
     setNuevoNombre(clase.nombre || "");
     setNuevoProfesor(clase.profesor || "");
-    setNuevaFechaClase(clase.fecha || "");
+    setNuevoDiaSemanaClase(String(clase.diaSemana ?? ""));
     setNuevaHoraClase(clase.hora || "");
-    setNuevosCupos(clase.cupos || "");
+    setNuevoCupoMaximo(String(clase.cupoMaximo || ""));
   };
 
   const cancelarEdicion = () => {
     setEditandoId(null);
     setNuevoNombre("");
     setNuevoProfesor("");
-    setNuevaFechaClase("");
+    setNuevoDiaSemanaClase("");
     setNuevaHoraClase("");
-    setNuevosCupos("");
+    setNuevoCupoMaximo("");
   };
 
   const renderClaseCard = (clase, { mostrarAdmin = false } = {}) => {
     const yaInscripto = clase.inscritos?.some((inscripto) => inscripto._id === user?._id);
     const inscritos = clase.inscritos || [];
+    const sinCreditos = (user?.creditos || 0) < 1;
 
     return (
       <div
@@ -811,20 +940,14 @@ function App() {
               minWidth: 0
             }}
           >
-            <select
+            <input
+              placeholder="Nombre de la clase"
               value={nuevoNombre}
               onChange={(e) => setNuevoNombre(e.target.value)}
               style={inputStyle}
               onMouseEnter={handleInputMouseEnter}
               onMouseLeave={handleInputMouseLeave}
-            >
-              <option value="">Selecciona una clase</option>
-              {CLASES_DISPONIBLES.map((tipoClase) => (
-                <option key={tipoClase} value={tipoClase}>
-                  {tipoClase}
-                </option>
-              ))}
-            </select>
+            />
 
             <input
               placeholder="Profesora o entrenador"
@@ -835,17 +958,23 @@ function App() {
               onMouseLeave={handleInputMouseLeave}
             />
 
-            <input
-              type="date"
-              value={nuevaFechaClase}
+            <select
+              value={nuevoDiaSemanaClase}
               onChange={(e) => {
-                setNuevaFechaClase(e.target.value);
+                setNuevoDiaSemanaClase(e.target.value);
                 setNuevaHoraClase("");
               }}
               style={inputStyle}
               onMouseEnter={handleInputMouseEnter}
               onMouseLeave={handleInputMouseLeave}
-            />
+            >
+              <option value="">Selecciona un dia</option>
+              {DIAS_SEMANA.map((dia) => (
+                <option key={dia.value} value={dia.value}>
+                  {dia.label}
+                </option>
+              ))}
+            </select>
 
             <select
               value={nuevaHoraClase}
@@ -864,9 +993,9 @@ function App() {
 
             <input
               type="number"
-              placeholder="Cupos"
-              value={nuevosCupos}
-              onChange={(e) => setNuevosCupos(e.target.value)}
+              placeholder="Cupo maximo"
+              value={nuevoCupoMaximo}
+              onChange={(e) => setNuevoCupoMaximo(e.target.value)}
               style={inputStyle}
               onMouseEnter={handleInputMouseEnter}
               onMouseLeave={handleInputMouseLeave}
@@ -913,10 +1042,10 @@ function App() {
                   {clase.profesor || "Profesora a definir"}
                 </h3>
                 <p style={{ margin: 0, opacity: 0.76, lineHeight: 1.6 }}>
-                  Clase guiada con acompanamiento personalizado y foco claro en resultados.
+                  Reserva este bloque y quedas anotado automaticamente para todos los {clase.diaLabel?.toLowerCase()} del mes a las {clase.hora}.
                 </p>
               </div>
-              <Badge text={clase.cupos > 0 ? `${clase.cupos} cupos` : "Sin cupos"} />
+              <Badge text={`${clase.cuposDisponibles} cupos libres`} />
             </div>
 
             <div
@@ -929,42 +1058,51 @@ function App() {
               <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
                 <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Dia</p>
                 <strong style={{ display: "block", marginTop: "8px" }}>
-                  {clase.fecha ? getDiaLabel(clase.fecha) : "A confirmar"}
-                </strong>
-              </div>
-              <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-                <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Fecha</p>
-                <strong style={{ display: "block", marginTop: "8px" }}>
-                  {clase.fecha || "A confirmar"}
+                  {clase.diaLabel || getDiaLabel(clase.diaSemana)}
                 </strong>
               </div>
               <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
                 <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Hora</p>
                 <strong style={{ display: "block", marginTop: "8px" }}>
-                  {clase.hora || "A confirmar"}
+                  {clase.hora}
+                </strong>
+              </div>
+              <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Reservas</p>
+                <strong style={{ display: "block", marginTop: "8px" }}>
+                  {clase.reservasCount}/{clase.cupoMaximo}
                 </strong>
               </div>
             </div>
 
             {!mostrarAdmin && (
-              <button
-                type="button"
-                onClick={() => reservar(clase._id)}
-                disabled={loading || yaInscripto || clase.cupos === 0}
-                style={{
-                  ...btnStyle,
-                  width: "100%",
-                  background: yaInscripto
-                    ? "#16a34a"
-                    : "linear-gradient(135deg, #22c55e, #4ade80)",
-                  cursor: loading || yaInscripto || clase.cupos === 0 ? "not-allowed" : "pointer",
-                  opacity: loading || clase.cupos === 0 ? 0.8 : 1
-                }}
-                onMouseEnter={loading || yaInscripto || clase.cupos === 0 ? undefined : handlePrimaryMouseEnter}
-                onMouseLeave={loading || yaInscripto || clase.cupos === 0 ? undefined : handlePrimaryMouseLeave}
-              >
-                {loading ? "Cargando..." : yaInscripto ? "Reservado" : "Reservar clase"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => reservar(clase._id)}
+                  disabled={loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos}
+                  style={{
+                    ...btnStyle,
+                    width: "100%",
+                    background: yaInscripto
+                      ? "#16a34a"
+                      : sinCreditos
+                        ? "#334155"
+                        : "linear-gradient(135deg, #22c55e, #4ade80)",
+                    cursor: loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos ? "not-allowed" : "pointer",
+                    opacity: loadingReservaId === clase._id || clase.cuposDisponibles === 0 || sinCreditos ? 0.85 : 1
+                  }}
+                  onMouseEnter={loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos ? undefined : handlePrimaryMouseEnter}
+                  onMouseLeave={loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos ? undefined : handlePrimaryMouseLeave}
+                >
+                  {loadingReservaId === clase._id ? "Reservando..." : yaInscripto ? "Reserva mensual activa" : "Reservar (1 credito)"}
+                </button>
+                {sinCreditos && !yaInscripto && (
+                  <p style={{ margin: 0, opacity: 0.72, color: "#facc15" }}>
+                    No tienes creditos disponibles para reservar esta clase.
+                  </p>
+                )}
+              </>
             )}
 
             {mostrarAdmin && (
@@ -978,8 +1116,8 @@ function App() {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
-                    <strong>Personas inscriptas</strong>
-                    <Badge text={`${inscritos.length} registradas`} />
+                    <strong>Personas inscriptas este mes</strong>
+                    <Badge text={`${inscritos.length} reservas`} />
                   </div>
                   <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
                     {inscritos.length > 0 ? (
@@ -1004,7 +1142,7 @@ function App() {
                       ))
                     ) : (
                       <p style={{ margin: 0, opacity: 0.72 }}>
-                        Todavia no hay inscriptas en esta clase.
+                        Todavia no hay reservas activas para esta clase.
                       </p>
                     )}
                   </div>
@@ -1122,8 +1260,8 @@ function App() {
               Transforma tu cuerpo
             </p>
             <p style={{ marginTop: "18px", marginBottom: 0, maxWidth: "620px", opacity: 0.82, lineHeight: 1.8 }}>
-              Una experiencia femenina fitness boutique con seguimiento real, agenda clara,
-              profesoras dedicadas y una plataforma privada para entrenar, reservar y sostener tu progreso.
+              Una experiencia fitness boutique con agenda semanal inteligente, reservas por creditos
+              y un panel privado pensado para alumnas y administracion.
             </p>
           </div>
 
@@ -1154,24 +1292,6 @@ function App() {
             >
               Unirme a la plataforma
             </button>
-            <button
-              type="button"
-              onClick={() => window.scrollTo({ top: 820, behavior: "smooth" })}
-              style={{
-                background: "transparent",
-                border: "1px solid rgba(255,255,255,0.15)",
-                padding: "15px 24px",
-                borderRadius: "999px",
-                color: "white",
-                fontWeight: "700",
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
-              onMouseEnter={handleSecondaryHoverEnter}
-              onMouseLeave={handleSecondaryHoverLeave}
-            >
-              Conocer el studio
-            </button>
           </div>
         </div>
 
@@ -1196,13 +1316,13 @@ function App() {
               }}
             />
             <p style={{ margin: 0, opacity: 0.68, textTransform: "uppercase", letterSpacing: "1.1px" }}>
-              Experiencia privada
+              Agenda inteligente
             </p>
             <h3 style={{ marginTop: "18px", marginBottom: "12px", fontSize: "30px" }}>
-              Gestiona tus clases, tu objetivo y tu progreso en un solo lugar.
+              Reserva una vez y quedas anotada en tu bloque semanal de todo el mes.
             </h3>
             <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.7 }}>
-              Reservas claras, panel admin profesional y una experiencia visual premium pensada para LOLIFIT.
+              Una base mas cercana a AgendaFit o Crossfy: clases recurrentes, creditos y administracion real.
             </p>
           </div>
 
@@ -1213,8 +1333,8 @@ function App() {
               gap: "18px"
             }}
           >
-            <StatCard title="Clases centrales" value="3" subtitle="Musculacion, cardio y personalizadas" accent="#22c55e" />
-            <StatCard title="Horarios activos" value="L a V" subtitle="Franjas configuradas segun cada dia" accent="#f472b6" />
+            <StatCard title="Bloques semanales" value="L a V" subtitle="Agenda fija con horas validadas" accent="#22c55e" />
+            <StatCard title="Sistema de creditos" value="1" subtitle="Cada reserva mensual consume 1 credito" accent="#f472b6" />
           </div>
         </div>
       </section>
@@ -1305,7 +1425,7 @@ function App() {
           <div>
             <Badge text="Acceso privado" color="#f9a8d4" background="rgba(244,114,182,0.14)" />
             <h2 style={{ marginTop: "18px", marginBottom: "12px", fontSize: isMobile ? "32px" : "42px", lineHeight: 1.05 }}>
-              Gestiona tus reservas, tu plan y tu progreso en una sola app.
+              Gestiona tus reservas, tus creditos y tu progreso en una sola app.
             </h2>
             <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.8 }}>
               Una experiencia clara, elegante y funcional para alumnas y administracion del studio.
@@ -1313,15 +1433,15 @@ function App() {
           </div>
           <div style={{ display: "grid", gap: "12px" }}>
             <div style={{ padding: "16px", borderRadius: "18px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Reservas organizadas</strong>
+              <strong>Agenda semanal</strong>
               <p style={{ marginBottom: 0, opacity: 0.72, lineHeight: 1.6 }}>
-                Visualiza clases, horarios exactos y profesoras sin perder contexto.
+                Bloques recurrentes por dia y hora, sin crear eventos uno por uno.
               </p>
             </div>
             <div style={{ padding: "16px", borderRadius: "18px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Seguimiento personal</strong>
+              <strong>Reservas por creditos</strong>
               <p style={{ marginBottom: 0, opacity: 0.72, lineHeight: 1.6 }}>
-                Tu objetivo y tu rutina diaria quedan visibles y accesibles.
+                Cada reserva mensual usa 1 credito y mantiene la agenda ordenada.
               </p>
             </div>
           </div>
@@ -1499,8 +1619,8 @@ function App() {
             Inicio
           </h1>
           <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.8, maxWidth: "680px" }}>
-            Bienvenida {user?.nombre}. Desde aqui puedes ver tu agenda, tu objetivo actual,
-            las clases disponibles y el estado del studio en una vista clara y profesional.
+            Bienvenida {user?.nombre}. Desde aqui puedes ver tu agenda semanal, tus creditos,
+            tu rutina del dia y el estado general del studio en una vista clara y profesional.
           </p>
         </div>
 
@@ -1513,20 +1633,35 @@ function App() {
           }}
         >
           <p style={{ marginTop: 0, opacity: 0.74, textTransform: "uppercase", letterSpacing: "1px" }}>
-            Resumen del dia
+            Pack y creditos
           </p>
-          <h3 style={{ marginTop: "12px", marginBottom: "8px", fontSize: "28px" }}>
-            {rutinaDeHoy?.titulo || "Tu siguiente paso empieza hoy"}
+          <h3 style={{ marginTop: "12px", marginBottom: "8px", fontSize: "34px" }}>
+            {user?.creditos || 0}
           </h3>
           <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.8 }}>
-            {rutinaDeHoy?.detalle || "Define tu objetivo en perfil para activar una rutina personalizada del dia."}
+            {user?.packActivo?.nombre
+              ? `Pack activo: ${user.packActivo.nombre} (${user.packActivo.creditos} creditos por $${user.packActivo.precioARS.toLocaleString("es-AR")})`
+              : "Todavia no tienes un pack activo este mes."}
           </p>
-          <div style={{ marginTop: "18px" }}>
-            <Badge
-              text={`Foco: ${rutinaDeHoy?.foco || "Organizacion"}`}
-              color="#22c55e"
-              background="rgba(34,197,94,0.14)"
-            />
+          <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {PACKS_MENSUALES.map((pack) => (
+              <button
+                key={pack.id}
+                type="button"
+                onClick={() => comprarPack(pack)}
+                disabled={comprandoPackId === pack.id}
+                style={{
+                  ...actionBtnStyle,
+                  background: "rgba(255,255,255,0.08)",
+                  color: "white",
+                  border: "1px solid rgba(255,255,255,0.08)"
+                }}
+                onMouseEnter={handleSecondaryHoverEnter}
+                onMouseLeave={handleSecondaryHoverLeave}
+              >
+                {comprandoPackId === pack.id ? "Procesando..." : `${pack.nombre} - $${pack.precioARS.toLocaleString("es-AR")}`}
+              </button>
+            ))}
           </div>
         </div>
       </section>
@@ -1557,28 +1692,12 @@ function App() {
         }}
       >
         <SectionCard
-          title="Tus clases reservadas"
-          subtitle="Acceso rapido a las clases que ya tienes confirmadas."
-          action={
-            <button
-              type="button"
-              onClick={() => setVista(VISTAS_PRIVADAS.CLASES)}
-              style={{
-                ...actionBtnStyle,
-                background: "rgba(255,255,255,0.06)",
-                color: "white",
-                border: "1px solid rgba(255,255,255,0.08)"
-              }}
-              onMouseEnter={handleSecondaryHoverEnter}
-              onMouseLeave={handleSecondaryHoverLeave}
-            >
-              Ver clases
-            </button>
-          }
+          title="Tus reservas mensuales"
+          subtitle={`Mes activo: ${getCurrentMonthKey()}. Cada reserva cubre todo el bloque semanal.`}
         >
           <div style={{ display: "grid", gap: "12px" }}>
             {misClases.length > 0 ? (
-              misClases.slice(0, 3).map((clase) => (
+              misClases.slice(0, 4).map((clase) => (
                 <div
                   key={clase._id}
                   style={{
@@ -1597,7 +1716,7 @@ function App() {
                   <div>
                     <strong>{clase.nombre}</strong>
                     <p style={{ marginBottom: 0, opacity: 0.72 }}>
-                      {getDiaLabel(clase.fecha)} {clase.fecha} - {clase.hora}
+                      {clase.diaLabel} - {clase.hora}
                     </p>
                   </div>
                   <Badge text={clase.profesor || "A definir"} />
@@ -1605,33 +1724,39 @@ function App() {
               ))
             ) : (
               <p style={{ margin: 0, opacity: 0.74 }}>
-                Todavia no tienes reservas activas.
+                Todavia no tienes reservas activas este mes.
               </p>
             )}
           </div>
         </SectionCard>
 
         <SectionCard
-          title="Agenda del studio"
-          subtitle="Vista rapida de las proximas clases publicadas."
+          title="Agenda de hoy"
+          subtitle="Vista rapida de los bloques disponibles para el dia actual."
         >
           <div style={{ display: "grid", gap: "12px" }}>
-            {clasesVisibles.slice(0, 4).map((clase) => (
-              <div
-                key={clase._id}
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "16px",
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.05)"
-                }}
-              >
-                <strong>{clase.nombre}</strong>
-                <p style={{ margin: "8px 0 0", opacity: 0.72, lineHeight: 1.6 }}>
-                  {clase.profesor || "Profesora a definir"} - {clase.fecha || "Fecha a confirmar"} - {clase.hora || "Hora a confirmar"}
-                </p>
-              </div>
-            ))}
+            {clasesDeHoy.length > 0 ? (
+              clasesDeHoy.map((clase) => (
+                <div
+                  key={clase._id}
+                  style={{
+                    padding: "14px 16px",
+                    borderRadius: "16px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.05)"
+                  }}
+                >
+                  <strong>{clase.nombre}</strong>
+                  <p style={{ margin: "8px 0 0", opacity: 0.72, lineHeight: 1.6 }}>
+                    {clase.profesor} - {clase.diaLabel} - {clase.hora}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p style={{ margin: 0, opacity: 0.74 }}>
+                Hoy no hay bloques configurados en la agenda.
+              </p>
+            )}
           </div>
         </SectionCard>
       </section>
@@ -1641,10 +1766,10 @@ function App() {
   const renderClases = () => (
     <div style={{ display: "grid", gap: "24px" }}>
       <SectionCard
-        title="Clases"
-        subtitle="Reserva facilmente y visualiza toda la agenda del studio con fechas y horarios exactos."
+        title="Agenda semanal"
+        subtitle="Reserva un bloque semanal y quedas anotada automaticamente en todas las clases del mes para ese dia y horario."
       >
-        <ScrollHint text="Las clases se muestran en una galeria horizontal para que la vista sea mas limpia y rapida de recorrer." />
+        <ScrollHint text="La agenda se muestra como un rail horizontal para navegar los bloques semanales sin alargar la pagina." />
         <div
           style={{
             display: "flex",
@@ -1656,7 +1781,7 @@ function App() {
             WebkitOverflowScrolling: "touch"
           }}
         >
-          {clasesVisibles.map((clase) => renderClaseCard(clase))}
+          {clases.map((clase) => renderClaseCard(clase))}
         </div>
       </SectionCard>
     </div>
@@ -1698,7 +1823,18 @@ function App() {
               <strong>{user?.email}</strong>
             </div>
             <div>
-              <p style={{ margin: 0, opacity: 0.65 }}>Clase reservada</p>
+              <p style={{ margin: 0, opacity: 0.65 }}>Creditos</p>
+              <strong style={{ fontSize: "22px" }}>{user?.creditos || 0}</strong>
+              <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                Valor estimado: ${(user?.creditos || 0) * VALOR_CREDITO_ARS} ARS
+              </p>
+            </div>
+            <div>
+              <p style={{ margin: 0, opacity: 0.65 }}>Pack activo</p>
+              <strong>{user?.packActivo?.nombre || "Sin pack mensual"}</strong>
+            </div>
+            <div>
+              <p style={{ margin: 0, opacity: 0.65 }}>Reservas activas</p>
               <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
                 {misClases.length > 0 ? (
                   misClases.map((clase) => (
@@ -1708,7 +1844,7 @@ function App() {
                   ))
                 ) : (
                   <div style={{ padding: "12px 14px", borderRadius: "14px", background: "rgba(255,255,255,0.04)" }}>
-                    Clase reservada: Ninguna
+                    Reserva activa: Ninguna
                   </div>
                 )}
               </div>
@@ -1717,8 +1853,8 @@ function App() {
         </SectionCard>
 
         <SectionCard
-          title="Objetivo y rutina diaria"
-          subtitle="Elige tu enfoque y mantene visible tu plan del dia."
+          title="Objetivo, rutina y pack"
+          subtitle="Gestiona tu objetivo y compra tu pack mensual sin salir del panel."
         >
           <select
             value={objetivoUsuario}
@@ -1744,6 +1880,52 @@ function App() {
           >
             {guardandoObjetivo ? "Guardando..." : "Guardar objetivo"}
           </button>
+
+          <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {PACKS_MENSUALES.map((pack) => (
+              <button
+                key={pack.id}
+                type="button"
+                onClick={() => comprarPack(pack)}
+                disabled={comprandoPackId === pack.id}
+                style={{
+                  ...actionBtnStyle,
+                  background: "rgba(255,255,255,0.06)",
+                  color: "white",
+                  border: "1px solid rgba(255,255,255,0.08)"
+                }}
+                onMouseEnter={handleSecondaryHoverEnter}
+                onMouseLeave={handleSecondaryHoverLeave}
+              >
+                {comprandoPackId === pack.id ? "Procesando..." : `${pack.nombre} - ${pack.creditos} creditos`}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
+            <h3 style={{ margin: 0, fontSize: "20px" }}>Historial reciente</h3>
+            {movimientos.length > 0 ? (
+              movimientos.slice(0, 5).map((movimiento) => (
+                <div
+                  key={movimiento._id}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "14px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.05)"
+                  }}
+                >
+                  <strong>{movimiento.descripcion || movimiento.tipo}</strong>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                    {movimiento.creditos > 0 ? "+" : ""}{movimiento.creditos} creditos
+                    {movimiento.montoARS ? ` - $${movimiento.montoARS.toLocaleString("es-AR")}` : ""}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p style={{ margin: 0, opacity: 0.72 }}>Todavia no hay movimientos cargados.</p>
+            )}
+          </div>
 
           <div
             style={{
@@ -1783,22 +1965,16 @@ function App() {
       >
         <SectionCard
           title="Panel de administracion"
-          subtitle="Publica clases con fecha exacta, profesora responsable y horario valido segun la franja configurada."
+          subtitle="Crea plantillas semanales en vez de eventos por fecha. Cada bloque representa una clase recurrente."
         >
-          <select
+          <input
+            placeholder="Nombre de la clase"
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             style={inputStyle}
             onMouseEnter={handleInputMouseEnter}
             onMouseLeave={handleInputMouseLeave}
-          >
-            <option value="">Selecciona una clase</option>
-            {CLASES_DISPONIBLES.map((tipoClase) => (
-              <option key={tipoClase} value={tipoClase}>
-                {tipoClase}
-              </option>
-            ))}
-          </select>
+          />
 
           <input
             placeholder="Nombre de quien dicta la clase"
@@ -1809,17 +1985,23 @@ function App() {
             onMouseLeave={handleInputMouseLeave}
           />
 
-          <input
-            type="date"
-            value={fechaClase}
+          <select
+            value={diaSemanaClase}
             onChange={(e) => {
-              setFechaClase(e.target.value);
+              setDiaSemanaClase(e.target.value);
               setHoraClase("");
             }}
             style={inputStyle}
             onMouseEnter={handleInputMouseEnter}
             onMouseLeave={handleInputMouseLeave}
-          />
+          >
+            <option value="">Selecciona un dia</option>
+            {DIAS_SEMANA.map((dia) => (
+              <option key={dia.value} value={dia.value}>
+                {dia.label}
+              </option>
+            ))}
+          </select>
 
           <select
             value={horaClase}
@@ -1838,9 +2020,9 @@ function App() {
 
           <input
             type="number"
-            placeholder="Cupos"
-            value={cupos}
-            onChange={(e) => setCupos(e.target.value)}
+            placeholder="Cupo maximo"
+            value={cupoMaximo}
+            onChange={(e) => setCupoMaximo(e.target.value)}
             style={inputStyle}
             onMouseEnter={handleInputMouseEnter}
             onMouseLeave={handleInputMouseLeave}
@@ -1853,13 +2035,13 @@ function App() {
             onMouseEnter={handlePrimaryMouseEnter}
             onMouseLeave={handlePrimaryMouseLeave}
           >
-            Crear clase
+            Crear clase semanal
           </button>
         </SectionCard>
 
         <SectionCard
           title="Reglas de agenda"
-          subtitle="La plataforma ya controla automaticamente las franjas permitidas."
+          subtitle="La administracion trabaja sobre una grilla semanal fija y packs mensuales."
         >
           <div style={{ display: "grid", gap: "12px" }}>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
@@ -1871,18 +2053,140 @@ function App() {
               <p style={{ marginBottom: 0, opacity: 0.72 }}>08:00 a 10:00 y 18:00 a 22:00</p>
             </div>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Clase disponible</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>Clases personalizadas</p>
+              <strong>Modelo de reserva</strong>
+              <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y consume 1 credito por mes.</p>
             </div>
+            <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+              <strong>Packs mensuales</strong>
+              <p style={{ marginBottom: 0, opacity: 0.72 }}>2 veces por semana: 9 creditos por $45.000. 3 veces por semana: 10 creditos por $50.000.</p>
+            </div>
+          </div>
+        </SectionCard>
+      </section>
+
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: isTablet ? "1fr" : "0.95fr 1.05fr",
+          gap: "22px"
+        }}
+      >
+        <SectionCard
+          title="Carga manual de creditos"
+          subtitle="Asigna creditos a alumnas que pagan en efectivo, ajustes o promociones."
+        >
+          <input
+            placeholder="Buscar alumna por nombre o email"
+            value={adminSearch}
+            onChange={(e) => setAdminSearch(e.target.value)}
+            style={inputStyle}
+            onMouseEnter={handleInputMouseEnter}
+            onMouseLeave={handleInputMouseLeave}
+          />
+
+          <select
+            value={adminUserId}
+            onChange={(e) => setAdminUserId(e.target.value)}
+            style={inputStyle}
+            onMouseEnter={handleInputMouseEnter}
+            onMouseLeave={handleInputMouseLeave}
+          >
+            <option value="">Selecciona una alumna</option>
+            {adminUsuarios
+              .filter((usuario) =>
+                `${usuario.nombre} ${usuario.email}`.toLowerCase().includes(adminSearch.toLowerCase())
+              )
+              .map((usuario) => (
+                <option key={usuario._id} value={usuario._id}>
+                  {usuario.nombre} - {usuario.email}
+                </option>
+              ))}
+          </select>
+
+          <select
+            value={adminPackId}
+            onChange={(e) => setAdminPackId(e.target.value)}
+            style={inputStyle}
+            onMouseEnter={handleInputMouseEnter}
+            onMouseLeave={handleInputMouseLeave}
+          >
+            <option value="">Sin pack, asignar creditos manuales</option>
+            {PACKS_MENSUALES.map((pack) => (
+              <option key={pack.id} value={pack.id}>
+                {pack.nombre} - {pack.creditos} creditos
+              </option>
+            ))}
+          </select>
+
+          {!adminPackId && (
+            <input
+              type="number"
+              placeholder="Cantidad manual de creditos"
+              value={adminCreditosManual}
+              onChange={(e) => setAdminCreditosManual(e.target.value)}
+              style={inputStyle}
+              onMouseEnter={handleInputMouseEnter}
+              onMouseLeave={handleInputMouseLeave}
+            />
+          )}
+
+          <input
+            placeholder="Motivo: pago efectivo, ajuste, promocion..."
+            value={adminMotivo}
+            onChange={(e) => setAdminMotivo(e.target.value)}
+            style={inputStyle}
+            onMouseEnter={handleInputMouseEnter}
+            onMouseLeave={handleInputMouseLeave}
+          />
+
+          <button
+            type="button"
+            onClick={asignarCreditosManual}
+            disabled={asignandoCreditos}
+            style={{ ...btnStyle, width: "100%", marginTop: 0 }}
+            onMouseEnter={handlePrimaryMouseEnter}
+            onMouseLeave={handlePrimaryMouseLeave}
+          >
+            {asignandoCreditos ? "Asignando..." : "Asignar creditos"}
+          </button>
+        </SectionCard>
+
+        <SectionCard
+          title="Estado de alumnas"
+          subtitle="Vista rapida de creditos y pack activo para facilitar la atencion en el local."
+        >
+          <div style={{ display: "grid", gap: "10px" }}>
+            {adminUsuarios
+              .filter((usuario) =>
+                `${usuario.nombre} ${usuario.email}`.toLowerCase().includes(adminSearch.toLowerCase())
+              )
+              .slice(0, 8)
+              .map((usuario) => (
+                <div
+                  key={usuario._id}
+                  style={{
+                    padding: "14px 16px",
+                    borderRadius: "16px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.05)"
+                  }}
+                >
+                  <strong>{usuario.nombre}</strong>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{usuario.email}</p>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                    Creditos: {usuario.creditos || 0} | Pack: {usuario.packActivo?.nombre || "Sin pack"}
+                  </p>
+                </div>
+              ))}
           </div>
         </SectionCard>
       </section>
 
       <SectionCard
         title="Gestion de clases"
-        subtitle="Edita, elimina o revisa las personas inscriptas en cada clase publicada."
+        subtitle="Edita, elimina o revisa las personas inscriptas en cada plantilla semanal."
       >
-        <ScrollHint text="El panel de gestion usa scroll lateral para mantener la administracion compacta sin una pagina demasiado larga." />
+        <ScrollHint text="La gestion usa scroll lateral para mantener la administracion compacta y facil de navegar." />
         <div
           style={{
             display: "flex",
@@ -1894,7 +2198,7 @@ function App() {
             WebkitOverflowScrolling: "touch"
           }}
         >
-          {clasesVisibles.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
+          {clases.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
         </div>
       </SectionCard>
     </div>
@@ -2081,33 +2385,35 @@ function App() {
                 )}
               </nav>
 
-              <button
-                type="button"
-                onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
-                style={{
-                  justifySelf: isMobile ? "center" : "end",
-                  width: "50px",
-                  height: "50px",
-                  borderRadius: "999px",
-                  border: "1px solid rgba(249,168,212,0.35)",
-                  background: "linear-gradient(135deg, #f472b6, #ec4899)",
-                  color: "white",
-                  fontWeight: "900",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow: "0 12px 24px rgba(236,72,153,0.2)"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-2px)";
-                  e.currentTarget.style.boxShadow = "0 16px 28px rgba(236,72,153,0.28)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "0 12px 24px rgba(236,72,153,0.2)";
-                }}
-              >
-                {userInitials}
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", justifySelf: isMobile ? "center" : "end", flexWrap: "wrap" }}>
+                <Badge text={`${user?.creditos || 0} creditos`} color="#facc15" background="rgba(250,204,21,0.14)" />
+                <button
+                  type="button"
+                  onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
+                  style={{
+                    width: "50px",
+                    height: "50px",
+                    borderRadius: "999px",
+                    border: "1px solid rgba(249,168,212,0.35)",
+                    background: "linear-gradient(135deg, #f472b6, #ec4899)",
+                    color: "white",
+                    fontWeight: "900",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    boxShadow: "0 12px 24px rgba(236,72,153,0.2)"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 16px 28px rgba(236,72,153,0.28)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 12px 24px rgba(236,72,153,0.2)";
+                  }}
+                >
+                  {userInitials}
+                </button>
+              </div>
             </header>
 
             {vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD && (
