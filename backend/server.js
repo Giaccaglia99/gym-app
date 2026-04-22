@@ -32,23 +32,26 @@ const CLASES_POR_DEFECTO = [
   {
     nombre: "Musculacion",
     profesor: "Profe LOLIFIT",
-    diaSemana: 1,
+    diasSemana: [1, 3, 5],
     hora: "18:00",
-    cupoMaximo: 12
+    cupoMaximo: 12,
+    creditosCosto: 9
   },
   {
     nombre: "Funcional",
     profesor: "Profe LOLIFIT",
-    diaSemana: 2,
-    hora: "10:00",
-    cupoMaximo: 12
+    diasSemana: [2, 4],
+    hora: "10:30",
+    cupoMaximo: 12,
+    creditosCosto: 9
   },
   {
     nombre: "Cardio",
     profesor: "Profe LOLIFIT",
-    diaSemana: 3,
+    diasSemana: [1, 3],
     hora: "19:00",
-    cupoMaximo: 12
+    cupoMaximo: 12,
+    creditosCosto: 10
   }
 ];
 
@@ -108,41 +111,51 @@ function getDayLabel(diaSemana) {
   return DIA_LABELS[diaSemana] || "Dia";
 }
 
-function buildHorarioSemanal(diaSemana, hora) {
-  return `${getDayLabel(diaSemana)} a las ${hora}`;
+function buildDiasLabel(diasSemana = []) {
+  return diasSemana
+    .map((dia) => getDayLabel(dia))
+    .join(" / ");
 }
 
-function validarClaseSemanal({ nombre, profesor, diaSemana, hora, cupoMaximo }) {
-  if (!nombre || !profesor || diaSemana === undefined || !hora || !cupoMaximo) {
+function buildHorarioSemanal(diasSemana, hora) {
+  return `${buildDiasLabel(diasSemana)} - ${hora} hs`;
+}
+
+function validarClaseSemanal({ nombre, profesor, diasSemana, hora, cupoMaximo, creditosCosto }) {
+  if (!nombre || !profesor || !Array.isArray(diasSemana) || diasSemana.length === 0 || !hora || !cupoMaximo) {
     return {
       valido: false,
-      mensaje: "Nombre, profesor, dia, hora y cupo son obligatorios"
+      mensaje: "Nombre, profesor, dias, hora y cupo son obligatorios"
     };
   }
 
-  if (!Number.isInteger(Number(diaSemana)) || Number(diaSemana) < 0 || Number(diaSemana) > 6) {
-    return {
-      valido: false,
-      mensaje: "Dia invalido"
-    };
-  }
+  const diasNormalizados = [...new Set(diasSemana.map((dia) => Number(dia)))].sort((a, b) => a - b);
 
-  const ventanas = HORARIOS_PERMITIDOS[Number(diaSemana)];
+  for (const dia of diasNormalizados) {
+    if (!Number.isInteger(dia) || dia < 0 || dia > 6) {
+      return {
+        valido: false,
+        mensaje: "Dia invalido"
+      };
+    }
 
-  if (!ventanas) {
-    return {
-      valido: false,
-      mensaje: "Solo se permiten clases de lunes a viernes"
-    };
-  }
+    const ventanas = HORARIOS_PERMITIDOS[dia];
 
-  const dentroDeRango = ventanas.some(([inicio, fin]) => hora >= inicio && hora <= fin);
+    if (!ventanas) {
+      return {
+        valido: false,
+        mensaje: "Solo se permiten clases de lunes a viernes"
+      };
+    }
 
-  if (!dentroDeRango) {
-    return {
-      valido: false,
-      mensaje: "La hora no esta permitida para ese dia"
-    };
+    const dentroDeRango = ventanas.some(([inicio, fin]) => hora >= inicio && hora <= fin);
+
+    if (!dentroDeRango) {
+      return {
+        valido: false,
+        mensaje: "La hora no esta permitida para los dias elegidos"
+      };
+    }
   }
 
   if (Number(cupoMaximo) <= 0) {
@@ -152,14 +165,22 @@ function validarClaseSemanal({ nombre, profesor, diaSemana, hora, cupoMaximo }) 
     };
   }
 
+  if (Number(creditosCosto) <= 0) {
+    return {
+      valido: false,
+      mensaje: "El costo en creditos debe ser mayor a 0"
+    };
+  }
+
   return {
-    valido: true
+    valido: true,
+    diasSemana: diasNormalizados
   };
 }
 
 async function inicializarClasesPorDefecto() {
   const cantidadPlantillas = await Clase.countDocuments({
-    diaSemana: { $exists: true }
+    diasSemana: { $exists: true }
   });
 
   if (cantidadPlantillas === 0) {
@@ -168,7 +189,7 @@ async function inicializarClasesPorDefecto() {
     await Clase.insertMany(
       CLASES_POR_DEFECTO.map((clase) => ({
         ...clase,
-        horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+        horario: buildHorarioSemanal(clase.diasSemana, clase.hora),
         inscritos: []
       }))
     );
@@ -300,8 +321,8 @@ async function registrarMovimiento({
 
 async function buildClasesResponse(monthKey = getMonthKey()) {
   const clases = await Clase.find({
-    diaSemana: { $exists: true }
-  }).sort({ diaSemana: 1, hora: 1 });
+    diasSemana: { $exists: true }
+  }).sort({ hora: 1 });
 
   const reservas = await Reserva.find({ monthKey })
     .populate("userId", "nombre email")
@@ -318,7 +339,18 @@ async function buildClasesResponse(monthKey = getMonthKey()) {
     return acc;
   }, {});
 
-  return clases.map((clase) => {
+  return clases
+    .sort((a, b) => {
+      const firstDayA = a.diasSemana?.[0] ?? 0;
+      const firstDayB = b.diasSemana?.[0] ?? 0;
+
+      if (firstDayA !== firstDayB) {
+        return firstDayA - firstDayB;
+      }
+
+      return a.hora.localeCompare(b.hora);
+    })
+    .map((clase) => {
     const inscritos = reservasPorClase[String(clase._id)] || [];
     const reservasCount = inscritos.length;
 
@@ -326,17 +358,18 @@ async function buildClasesResponse(monthKey = getMonthKey()) {
       _id: clase._id,
       nombre: clase.nombre,
       profesor: clase.profesor,
-      diaSemana: clase.diaSemana,
-      diaLabel: getDayLabel(clase.diaSemana),
+      diasSemana: clase.diasSemana,
+      diasLabel: buildDiasLabel(clase.diasSemana),
       hora: clase.hora,
-      horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+      horario: buildHorarioSemanal(clase.diasSemana, clase.hora),
       cupoMaximo: clase.cupoMaximo,
+      creditosCosto: clase.creditosCosto || 9,
       cuposDisponibles: Math.max(clase.cupoMaximo - reservasCount, 0),
       reservasCount,
       inscritos,
       monthKey
     };
-  });
+    });
 }
 
 const transporter = nodemailer.createTransport({
@@ -571,7 +604,7 @@ app.get("/seed", async (req, res) => {
   await Clase.insertMany(
     CLASES_POR_DEFECTO.map((clase) => ({
       ...clase,
-      horario: buildHorarioSemanal(clase.diaSemana, clase.hora),
+      horario: buildHorarioSemanal(clase.diasSemana, clase.hora),
       inscritos: []
     }))
   );
@@ -614,8 +647,10 @@ app.post("/reservar", verificarToken, async (req, res) => {
       return res.status(400).json({ mensaje: "Clase llena" });
     }
 
-    if ((user.creditos || 0) < 1) {
-      return res.status(400).json({ mensaje: "No tienes creditos disponibles" });
+    const costoReserva = Number(clase.creditosCosto || 9);
+
+    if ((user.creditos || 0) < costoReserva) {
+      return res.status(400).json({ mensaje: "No tienes creditos suficientes para esta clase" });
     }
 
     await Reserva.create({
@@ -624,15 +659,15 @@ app.post("/reservar", verificarToken, async (req, res) => {
       monthKey
     });
 
-    user.creditos -= 1;
+    user.creditos -= costoReserva;
     await user.save();
 
     await registrarMovimiento({
       userId: user._id,
       tipo: "reserva",
-      creditos: -1,
+      creditos: -costoReserva,
       montoARS: 0,
-      descripcion: `Reserva mensual en ${clase.nombre} - ${buildHorarioSemanal(clase.diaSemana, clase.hora)}`,
+      descripcion: `Reserva mensual en ${clase.nombre} - ${buildHorarioSemanal(clase.diasSemana, clase.hora)}`,
       monthKey
     });
 
@@ -653,13 +688,14 @@ app.post("/crear-clase", verificarToken, async (req, res) => {
     return res.status(403).json({ mensaje: "No autorizado" });
   }
 
-  const { nombre, profesor, diaSemana, hora, cupoMaximo } = req.body;
+  const { nombre, profesor, diasSemana, hora, cupoMaximo, creditosCosto } = req.body;
   const validacion = validarClaseSemanal({
     nombre,
     profesor,
-    diaSemana: Number(diaSemana),
+    diasSemana,
     hora,
-    cupoMaximo: Number(cupoMaximo)
+    cupoMaximo: Number(cupoMaximo),
+    creditosCosto: Number(creditosCosto)
   });
 
   if (!validacion.valido) {
@@ -667,8 +703,8 @@ app.post("/crear-clase", verificarToken, async (req, res) => {
   }
 
   const existe = await Clase.findOne({
-    diaSemana: Number(diaSemana),
-    hora
+    hora,
+    diasSemana: validacion.diasSemana
   });
 
   if (existe) {
@@ -678,10 +714,11 @@ app.post("/crear-clase", verificarToken, async (req, res) => {
   const nuevaClase = new Clase({
     nombre,
     profesor,
-    diaSemana: Number(diaSemana),
+    diasSemana: validacion.diasSemana,
     hora,
     cupoMaximo: Number(cupoMaximo),
-    horario: buildHorarioSemanal(Number(diaSemana), hora),
+    creditosCosto: Number(creditosCosto),
+    horario: buildHorarioSemanal(validacion.diasSemana, hora),
     inscritos: []
   });
 
@@ -721,15 +758,19 @@ app.post("/admin/asignar-creditos", verificarToken, async (req, res) => {
   const pack = packId ? getPackById(packId) : null;
   const creditosAsignados = pack ? pack.creditos : Number(creditos);
 
-  if (!creditosAsignados || Number(creditosAsignados) <= 0) {
+  if (!creditosAsignados || Number(creditosAsignados) === 0) {
     return res.status(400).json({ mensaje: "Debes indicar un pack o una cantidad valida de creditos" });
+  }
+
+  if ((user.creditos || 0) + Number(creditosAsignados) < 0) {
+    return res.status(400).json({ mensaje: "No puedes dejar al usuario con creditos negativos" });
   }
 
   user.creditos = (user.creditos || 0) + Number(creditosAsignados);
   user.fechaUltimaCompra = new Date();
   user.mesActivo = getMonthKey();
 
-  if (pack) {
+  if (pack && Number(creditosAsignados) > 0) {
     user.packActivo = pack;
   }
 
@@ -737,9 +778,9 @@ app.post("/admin/asignar-creditos", verificarToken, async (req, res) => {
 
   await registrarMovimiento({
     userId: user._id,
-    tipo: motivo === "ajuste" ? "ajuste" : "carga_admin",
+    tipo: motivo === "ajuste" || Number(creditosAsignados) < 0 ? "ajuste" : "carga_admin",
     creditos: Number(creditosAsignados),
-    montoARS: pack ? pack.precioARS : Number(creditosAsignados) * 5000,
+    montoARS: pack ? pack.precioARS : Math.abs(Number(creditosAsignados)) * 5000,
     descripcion: motivo || "Carga manual desde admin",
     pack,
     monthKey: user.mesActivo
@@ -774,13 +815,14 @@ app.put("/clases/:id", verificarToken, async (req, res) => {
   }
 
   const { id } = req.params;
-  const { nombre, profesor, diaSemana, hora, cupoMaximo } = req.body;
+  const { nombre, profesor, diasSemana, hora, cupoMaximo, creditosCosto } = req.body;
   const validacion = validarClaseSemanal({
     nombre,
     profesor,
-    diaSemana: Number(diaSemana),
+    diasSemana,
     hora,
-    cupoMaximo: Number(cupoMaximo)
+    cupoMaximo: Number(cupoMaximo),
+    creditosCosto: Number(creditosCosto)
   });
 
   if (!validacion.valido) {
@@ -789,8 +831,8 @@ app.put("/clases/:id", verificarToken, async (req, res) => {
 
   const existe = await Clase.findOne({
     _id: { $ne: id },
-    diaSemana: Number(diaSemana),
-    hora
+    hora,
+    diasSemana: validacion.diasSemana
   });
 
   if (existe) {
@@ -802,10 +844,11 @@ app.put("/clases/:id", verificarToken, async (req, res) => {
     {
       nombre,
       profesor,
-      diaSemana: Number(diaSemana),
+      diasSemana: validacion.diasSemana,
       hora,
       cupoMaximo: Number(cupoMaximo),
-      horario: buildHorarioSemanal(Number(diaSemana), hora)
+      creditosCosto: Number(creditosCosto),
+      horario: buildHorarioSemanal(validacion.diasSemana, hora)
     },
     { new: true }
   );

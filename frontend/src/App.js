@@ -140,6 +140,10 @@ function getDiaLabel(diaSemana) {
   return found?.label || "";
 }
 
+function buildDiasLabel(diasSemana = []) {
+  return diasSemana.map((dia) => getDiaLabel(dia)).join(" / ");
+}
+
 function getHorariosDisponiblesPorDia(diaSemana) {
   const horariosPorDia = {
     1: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
@@ -152,6 +156,17 @@ function getHorariosDisponiblesPorDia(diaSemana) {
   return horariosPorDia[Number(diaSemana)] || [];
 }
 
+function getHorariosDisponiblesPorDias(diasSemana = []) {
+  if (!diasSemana.length) {
+    return [];
+  }
+
+  const horariosPorDia = diasSemana.map((dia) => getHorariosDisponiblesPorDia(dia));
+  return horariosPorDia.reduce((acc, horariosActuales) =>
+    acc.filter((hora) => horariosActuales.includes(hora))
+  );
+}
+
 function getUserInitials(user) {
   if (!user?.nombre) {
     return "LF";
@@ -162,7 +177,7 @@ function getUserInitials(user) {
 }
 
 function getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin }) {
-  const disponiblesHoy = clases.filter((clase) => Number(clase.diaSemana) === getTodayWeekday()).length;
+  const disponiblesHoy = clases.filter((clase) => clase.diasSemana?.includes(getTodayWeekday())).length;
   const packLabel = user?.packActivo?.nombre || "Sin pack activo";
 
   return [
@@ -204,7 +219,7 @@ function formatClaseResumen(clase) {
     return "Ninguna";
   }
 
-  return `${clase.nombre} - ${clase.diaLabel || getDiaLabel(clase.diaSemana)} - ${clase.hora}`;
+  return `${clase.nombre} - ${clase.diasLabel || buildDiasLabel(clase.diasSemana)} - ${clase.hora}`;
 }
 
 function handleInputMouseEnter(e) {
@@ -437,16 +452,18 @@ function App() {
   const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
   const [profesor, setProfesor] = useState("");
-  const [diaSemanaClase, setDiaSemanaClase] = useState("");
+  const [diasSemanaClase, setDiasSemanaClase] = useState([]);
   const [horaClase, setHoraClase] = useState("");
   const [cupoMaximo, setCupoMaximo] = useState("");
+  const [creditosCosto, setCreditosCosto] = useState("9");
 
   const [editandoId, setEditandoId] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoProfesor, setNuevoProfesor] = useState("");
-  const [nuevoDiaSemanaClase, setNuevoDiaSemanaClase] = useState("");
+  const [nuevoDiasSemanaClase, setNuevoDiasSemanaClase] = useState([]);
   const [nuevaHoraClase, setNuevaHoraClase] = useState("");
   const [nuevoCupoMaximo, setNuevoCupoMaximo] = useState("");
+  const [nuevoCreditosCosto, setNuevoCreditosCosto] = useState("9");
 
   const [loadingReservaId, setLoadingReservaId] = useState(null);
   const [clases, setClases] = useState([]);
@@ -464,6 +481,12 @@ function App() {
   const [adminCreditosManual, setAdminCreditosManual] = useState("");
   const [adminMotivo, setAdminMotivo] = useState("pago efectivo");
   const [asignandoCreditos, setAsignandoCreditos] = useState(false);
+  const [creditModalOpen, setCreditModalOpen] = useState(false);
+  const [selectedPackId, setSelectedPackId] = useState(PACKS_MENSUALES[0].id);
+  const [cardHolder, setCardHolder] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvv, setCardCvv] = useState("");
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
@@ -483,13 +506,15 @@ function App() {
   const isTablet = viewportWidth < 1100;
   const minutos = Math.floor(tiempo / 60);
   const segundos = tiempo % 60;
-  const horariosDisponibles = getHorariosDisponiblesPorDia(diaSemanaClase);
-  const nuevosHorariosDisponibles = getHorariosDisponiblesPorDia(nuevoDiaSemanaClase);
+  const horariosDisponibles = getHorariosDisponiblesPorDias(diasSemanaClase);
+  const nuevosHorariosDisponibles = getHorariosDisponiblesPorDias(nuevoDiasSemanaClase);
   const misClases = clases.filter((clase) =>
     clase.inscritos?.some((inscripto) => inscripto._id === user?._id)
   );
   const metricasDashboard = getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin });
-  const clasesDeHoy = clases.filter((clase) => Number(clase.diaSemana) === getTodayWeekday());
+  const clasesDeHoy = clases.filter((clase) => clase.diasSemana?.includes(getTodayWeekday()));
+  const selectedPack = PACKS_MENSUALES.find((pack) => pack.id === selectedPackId) || PACKS_MENSUALES[0];
+  const selectedAdminUser = adminUsuarios.find((usuario) => usuario._id === adminUserId);
 
   const syncStoredUser = (nextUser) => {
     setUser(nextUser);
@@ -625,9 +650,18 @@ function App() {
   const limpiarFormularioClase = () => {
     setNombre("");
     setProfesor("");
-    setDiaSemanaClase("");
+    setDiasSemanaClase([]);
     setHoraClase("");
     setCupoMaximo("");
+    setCreditosCosto("9");
+  };
+
+  const toggleDiaSemana = (dia, setter) => {
+    setter((prev) => {
+      const existe = prev.includes(dia);
+      const next = existe ? prev.filter((item) => item !== dia) : [...prev, dia];
+      return next.sort((a, b) => a - b);
+    });
   };
 
   const login = async () => {
@@ -685,6 +719,11 @@ function App() {
 
   const comprarPack = async (pack) => {
     try {
+      if (!cardHolder || !cardNumber || !cardExpiry || !cardCvv) {
+        toast.error("Completa los datos de la tarjeta");
+        return;
+      }
+
       setComprandoPackId(pack.id);
       const res = await api.post("/comprar-pack", { packId: pack.id });
       syncStoredUser({
@@ -692,6 +731,11 @@ function App() {
         ...res.data.user
       });
       await fetchMovimientos();
+      setCreditModalOpen(false);
+      setCardHolder("");
+      setCardNumber("");
+      setCardExpiry("");
+      setCardCvv("");
       toast.success(`Pack activado: ${pack.nombre}`);
     } catch (err) {
       toast.error(err.response?.data?.mensaje || "No se pudo comprar el pack");
@@ -793,9 +837,10 @@ function App() {
         setEditandoId(null);
         setNuevoNombre("");
         setNuevoProfesor("");
-        setNuevoDiaSemanaClase("");
+        setNuevoDiasSemanaClase([]);
         setNuevaHoraClase("");
         setNuevoCupoMaximo("");
+        setNuevoCreditosCosto("9");
         setCodigo("");
         setEmail("");
         setPassword("");
@@ -831,17 +876,19 @@ function App() {
       await api.put(`/clases/${id}`, {
         nombre: nuevoNombre,
         profesor: nuevoProfesor,
-        diaSemana: Number(nuevoDiaSemanaClase),
+        diasSemana: nuevoDiasSemanaClase,
         hora: nuevaHoraClase,
-        cupoMaximo: Number(nuevoCupoMaximo)
+        cupoMaximo: Number(nuevoCupoMaximo),
+        creditosCosto: Number(nuevoCreditosCosto)
       });
 
       setEditandoId(null);
       setNuevoNombre("");
       setNuevoProfesor("");
-      setNuevoDiaSemanaClase("");
+      setNuevoDiasSemanaClase([]);
       setNuevaHoraClase("");
       setNuevoCupoMaximo("");
+      setNuevoCreditosCosto("9");
       toast.success("Clase semanal actualizada");
       await fetchClases();
     } catch (err) {
@@ -854,9 +901,10 @@ function App() {
       await api.post("/crear-clase", {
         nombre,
         profesor,
-        diaSemana: Number(diaSemanaClase),
+        diasSemana: diasSemanaClase,
         hora: horaClase,
-        cupoMaximo: Number(cupoMaximo)
+        cupoMaximo: Number(cupoMaximo),
+        creditosCosto: Number(creditosCosto)
       });
       toast.success("Clase semanal creada");
       limpiarFormularioClase();
@@ -890,24 +938,27 @@ function App() {
     setEditandoId(clase._id);
     setNuevoNombre(clase.nombre || "");
     setNuevoProfesor(clase.profesor || "");
-    setNuevoDiaSemanaClase(String(clase.diaSemana ?? ""));
+    setNuevoDiasSemanaClase(clase.diasSemana || []);
     setNuevaHoraClase(clase.hora || "");
     setNuevoCupoMaximo(String(clase.cupoMaximo || ""));
+    setNuevoCreditosCosto(String(clase.creditosCosto || 9));
   };
 
   const cancelarEdicion = () => {
     setEditandoId(null);
     setNuevoNombre("");
     setNuevoProfesor("");
-    setNuevoDiaSemanaClase("");
+    setNuevoDiasSemanaClase([]);
     setNuevaHoraClase("");
     setNuevoCupoMaximo("");
+    setNuevoCreditosCosto("9");
   };
 
   const renderClaseCard = (clase, { mostrarAdmin = false } = {}) => {
     const yaInscripto = clase.inscritos?.some((inscripto) => inscripto._id === user?._id);
     const inscritos = clase.inscritos || [];
-    const sinCreditos = (user?.creditos || 0) < 1;
+    const costoClase = Number(clase.creditosCosto || 9);
+    const sinCreditos = (user?.creditos || 0) < costoClase;
 
     return (
       <div
@@ -958,23 +1009,32 @@ function App() {
               onMouseLeave={handleInputMouseLeave}
             />
 
-            <select
-              value={nuevoDiaSemanaClase}
-              onChange={(e) => {
-                setNuevoDiaSemanaClase(e.target.value);
-                setNuevaHoraClase("");
-              }}
-              style={inputStyle}
-              onMouseEnter={handleInputMouseEnter}
-              onMouseLeave={handleInputMouseLeave}
-            >
-              <option value="">Selecciona un dia</option>
-              {DIAS_SEMANA.map((dia) => (
-                <option key={dia.value} value={dia.value}>
-                  {dia.label}
-                </option>
-              ))}
-            </select>
+            <div style={{ marginBottom: "12px" }}>
+              <p style={{ marginTop: 0, marginBottom: "10px", opacity: 0.72 }}>Dias recurrentes</p>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {DIAS_SEMANA.map((dia) => {
+                  const activo = nuevoDiasSemanaClase.includes(dia.value);
+                  return (
+                    <button
+                      key={dia.value}
+                      type="button"
+                      onClick={() => {
+                        toggleDiaSemana(dia.value, setNuevoDiasSemanaClase);
+                        setNuevaHoraClase("");
+                      }}
+                      style={{
+                        ...actionBtnStyle,
+                        background: activo ? "rgba(244,114,182,0.18)" : "rgba(255,255,255,0.05)",
+                        color: "white",
+                        border: activo ? "1px solid rgba(244,114,182,0.35)" : "1px solid rgba(255,255,255,0.06)"
+                      }}
+                    >
+                      {dia.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <select
               value={nuevaHoraClase}
@@ -996,6 +1056,16 @@ function App() {
               placeholder="Cupo maximo"
               value={nuevoCupoMaximo}
               onChange={(e) => setNuevoCupoMaximo(e.target.value)}
+              style={inputStyle}
+              onMouseEnter={handleInputMouseEnter}
+              onMouseLeave={handleInputMouseLeave}
+            />
+
+            <input
+              type="number"
+              placeholder="Costo en creditos"
+              value={nuevoCreditosCosto}
+              onChange={(e) => setNuevoCreditosCosto(e.target.value)}
               style={inputStyle}
               onMouseEnter={handleInputMouseEnter}
               onMouseLeave={handleInputMouseLeave}
@@ -1042,7 +1112,7 @@ function App() {
                   {clase.profesor || "Profesora a definir"}
                 </h3>
                 <p style={{ margin: 0, opacity: 0.76, lineHeight: 1.6 }}>
-                  Reserva este bloque y quedas anotado automaticamente para todos los {clase.diaLabel?.toLowerCase()} del mes a las {clase.hora}.
+                  Reserva este bloque recurrente y quedas anotado automaticamente en todos los turnos del mes para {clase.diasLabel?.toLowerCase()} a las {clase.hora}.
                 </p>
               </div>
               <Badge text={`${clase.cuposDisponibles} cupos libres`} />
@@ -1056,9 +1126,9 @@ function App() {
               }}
             >
               <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-                <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Dia</p>
+                <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Dias</p>
                 <strong style={{ display: "block", marginTop: "8px" }}>
-                  {clase.diaLabel || getDiaLabel(clase.diaSemana)}
+                  {clase.diasLabel || buildDiasLabel(clase.diasSemana)}
                 </strong>
               </div>
               <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
@@ -1071,6 +1141,12 @@ function App() {
                 <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Reservas</p>
                 <strong style={{ display: "block", marginTop: "8px" }}>
                   {clase.reservasCount}/{clase.cupoMaximo}
+                </strong>
+              </div>
+              <div style={{ padding: "14px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <p style={{ margin: 0, opacity: 0.65, fontSize: "12px", textTransform: "uppercase" }}>Costo</p>
+                <strong style={{ display: "block", marginTop: "8px" }}>
+                  {costoClase} creditos
                 </strong>
               </div>
             </div>
@@ -1095,11 +1171,11 @@ function App() {
                   onMouseEnter={loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos ? undefined : handlePrimaryMouseEnter}
                   onMouseLeave={loadingReservaId === clase._id || yaInscripto || clase.cuposDisponibles === 0 || sinCreditos ? undefined : handlePrimaryMouseLeave}
                 >
-                  {loadingReservaId === clase._id ? "Reservando..." : yaInscripto ? "Reserva mensual activa" : "Reservar (1 credito)"}
+                  {loadingReservaId === clase._id ? "Reservando..." : yaInscripto ? "Reserva mensual activa" : `Reservar - ${costoClase} creditos`}
                 </button>
                 {sinCreditos && !yaInscripto && (
                   <p style={{ margin: 0, opacity: 0.72, color: "#facc15" }}>
-                    No tienes creditos disponibles para reservar esta clase.
+                    No tienes creditos suficientes para reservar esta clase.
                   </p>
                 )}
               </>
@@ -1260,7 +1336,7 @@ function App() {
               Transforma tu cuerpo
             </p>
             <p style={{ marginTop: "18px", marginBottom: 0, maxWidth: "620px", opacity: 0.82, lineHeight: 1.8 }}>
-              Una experiencia fitness boutique con agenda semanal inteligente, reservas por creditos
+              Una experiencia fitness boutique con agenda semanal inteligente, packs mensuales
               y un panel privado pensado para alumnas y administracion.
             </p>
           </div>
@@ -1319,10 +1395,10 @@ function App() {
               Agenda inteligente
             </p>
             <h3 style={{ marginTop: "18px", marginBottom: "12px", fontSize: "30px" }}>
-              Reserva una vez y quedas anotada en tu bloque semanal de todo el mes.
+              Sistema de creditos: elegi tu pack mensual y reserva tus clases recurrentes segun el costo de cada turno.
             </h3>
             <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.7 }}>
-              Una base mas cercana a AgendaFit o Crossfy: clases recurrentes, creditos y administracion real.
+              Los packs mensuales se acreditan en tu cuenta y se usan para reservar tus clases recurrentes con una experiencia mas profesional.
             </p>
           </div>
 
@@ -1334,7 +1410,7 @@ function App() {
             }}
           >
             <StatCard title="Bloques semanales" value="L a V" subtitle="Agenda fija con horas validadas" accent="#22c55e" />
-            <StatCard title="Sistema de creditos" value="1" subtitle="Cada reserva mensual consume 1 credito" accent="#f472b6" />
+            <StatCard title="Sistema de creditos" value="9 o 10" subtitle="Cada pack mensual acredita 9 o 10 creditos segun el plan" accent="#f472b6" />
           </div>
         </div>
       </section>
@@ -1439,9 +1515,9 @@ function App() {
               </p>
             </div>
             <div style={{ padding: "16px", borderRadius: "18px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Reservas por creditos</strong>
+              <strong>Packs mensuales</strong>
               <p style={{ marginBottom: 0, opacity: 0.72, lineHeight: 1.6 }}>
-                Cada reserva mensual usa 1 credito y mantiene la agenda ordenada.
+                Los packs mensuales se acreditan en tu cuenta y se usan para reservar tus clases recurrentes.
               </p>
             </div>
           </div>
@@ -1644,24 +1720,20 @@ function App() {
               : "Todavia no tienes un pack activo este mes."}
           </p>
           <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {PACKS_MENSUALES.map((pack) => (
-              <button
-                key={pack.id}
-                type="button"
-                onClick={() => comprarPack(pack)}
-                disabled={comprandoPackId === pack.id}
-                style={{
-                  ...actionBtnStyle,
-                  background: "rgba(255,255,255,0.08)",
-                  color: "white",
-                  border: "1px solid rgba(255,255,255,0.08)"
-                }}
-                onMouseEnter={handleSecondaryHoverEnter}
-                onMouseLeave={handleSecondaryHoverLeave}
-              >
-                {comprandoPackId === pack.id ? "Procesando..." : `${pack.nombre} - $${pack.precioARS.toLocaleString("es-AR")}`}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setCreditModalOpen(true)}
+              style={{
+                ...actionBtnStyle,
+                background: "rgba(255,255,255,0.08)",
+                color: "white",
+                border: "1px solid rgba(255,255,255,0.08)"
+              }}
+              onMouseEnter={handleSecondaryHoverEnter}
+              onMouseLeave={handleSecondaryHoverLeave}
+            >
+              Mis creditos
+            </button>
           </div>
         </div>
       </section>
@@ -1716,7 +1788,7 @@ function App() {
                   <div>
                     <strong>{clase.nombre}</strong>
                     <p style={{ marginBottom: 0, opacity: 0.72 }}>
-                      {clase.diaLabel} - {clase.hora}
+                      {clase.diasLabel} - {clase.hora}
                     </p>
                   </div>
                   <Badge text={clase.profesor || "A definir"} />
@@ -1748,7 +1820,7 @@ function App() {
                 >
                   <strong>{clase.nombre}</strong>
                   <p style={{ margin: "8px 0 0", opacity: 0.72, lineHeight: 1.6 }}>
-                    {clase.profesor} - {clase.diaLabel} - {clase.hora}
+                    {clase.profesor} - {clase.diasLabel} - {clase.hora}
                   </p>
                 </div>
               ))
@@ -1764,12 +1836,18 @@ function App() {
   );
 
   const renderClases = () => (
-    <div style={{ display: "grid", gap: "24px" }}>
-      <SectionCard
-        title="Agenda semanal"
-        subtitle="Reserva un bloque semanal y quedas anotada automaticamente en todas las clases del mes para ese dia y horario."
-      >
-        <ScrollHint text="La agenda se muestra como un rail horizontal para navegar los bloques semanales sin alargar la pagina." />
+    (() => {
+      const clasesLunesMiercolesViernes = clases.filter((clase) => {
+        const dias = clase.diasSemana || [];
+        return dias.includes(1) || dias.includes(3) || dias.includes(5);
+      });
+
+      const clasesMartesJueves = clases.filter((clase) => {
+        const dias = clase.diasSemana || [];
+        return dias.includes(2) || dias.includes(4);
+      });
+
+      const renderFilaClases = (items) => (
         <div
           style={{
             display: "flex",
@@ -1781,10 +1859,49 @@ function App() {
             WebkitOverflowScrolling: "touch"
           }}
         >
-          {clases.map((clase) => renderClaseCard(clase))}
+          {items.length > 0 ? (
+            items.map((clase) => renderClaseCard(clase))
+          ) : (
+            <div
+              style={{
+                ...softPanelStyle,
+                padding: "18px",
+                minWidth: isMobile ? "84vw" : "320px"
+              }}
+            >
+              No hay clases cargadas en este grupo todavia.
+            </div>
+          )}
         </div>
-      </SectionCard>
-    </div>
+      );
+
+      return (
+        <div style={{ display: "grid", gap: "24px" }}>
+          <SectionCard
+            title="Agenda semanal"
+            subtitle="Reserva un bloque recurrente y quedas anotada automaticamente en todas las clases del mes para ese conjunto de dias y horario."
+          >
+            <div style={{ display: "grid", gap: "26px" }}>
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
+                  Lunes / Miercoles / Viernes
+                </h3>
+                <ScrollHint text="Clases agrupadas para el bloque Lunes / Miercoles / Viernes." />
+                {renderFilaClases(clasesLunesMiercolesViernes)}
+              </div>
+
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
+                  Martes / Jueves
+                </h3>
+                <ScrollHint text="Clases agrupadas para el bloque Martes / Jueves." />
+                {renderFilaClases(clasesMartesJueves)}
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      );
+    })()
   );
 
   const renderPerfil = () => (
@@ -1882,24 +1999,20 @@ function App() {
           </button>
 
           <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {PACKS_MENSUALES.map((pack) => (
-              <button
-                key={pack.id}
-                type="button"
-                onClick={() => comprarPack(pack)}
-                disabled={comprandoPackId === pack.id}
-                style={{
-                  ...actionBtnStyle,
-                  background: "rgba(255,255,255,0.06)",
-                  color: "white",
-                  border: "1px solid rgba(255,255,255,0.08)"
-                }}
-                onMouseEnter={handleSecondaryHoverEnter}
-                onMouseLeave={handleSecondaryHoverLeave}
-              >
-                {comprandoPackId === pack.id ? "Procesando..." : `${pack.nombre} - ${pack.creditos} creditos`}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setCreditModalOpen(true)}
+              style={{
+                ...actionBtnStyle,
+                background: "rgba(255,255,255,0.06)",
+                color: "white",
+                border: "1px solid rgba(255,255,255,0.08)"
+              }}
+              onMouseEnter={handleSecondaryHoverEnter}
+              onMouseLeave={handleSecondaryHoverLeave}
+            >
+              Mis creditos
+            </button>
           </div>
 
           <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
@@ -1985,23 +2098,32 @@ function App() {
             onMouseLeave={handleInputMouseLeave}
           />
 
-          <select
-            value={diaSemanaClase}
-            onChange={(e) => {
-              setDiaSemanaClase(e.target.value);
-              setHoraClase("");
-            }}
-            style={inputStyle}
-            onMouseEnter={handleInputMouseEnter}
-            onMouseLeave={handleInputMouseLeave}
-          >
-            <option value="">Selecciona un dia</option>
-            {DIAS_SEMANA.map((dia) => (
-              <option key={dia.value} value={dia.value}>
-                {dia.label}
-              </option>
-            ))}
-          </select>
+          <div style={{ marginBottom: "12px" }}>
+            <p style={{ marginTop: 0, marginBottom: "10px", opacity: 0.72 }}>Dias recurrentes</p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {DIAS_SEMANA.map((dia) => {
+                const activo = diasSemanaClase.includes(dia.value);
+                return (
+                  <button
+                    key={dia.value}
+                    type="button"
+                    onClick={() => {
+                      toggleDiaSemana(dia.value, setDiasSemanaClase);
+                      setHoraClase("");
+                    }}
+                    style={{
+                      ...actionBtnStyle,
+                      background: activo ? "rgba(244,114,182,0.18)" : "rgba(255,255,255,0.05)",
+                      color: "white",
+                      border: activo ? "1px solid rgba(244,114,182,0.35)" : "1px solid rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    {dia.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <select
             value={horaClase}
@@ -2023,6 +2145,16 @@ function App() {
             placeholder="Cupo maximo"
             value={cupoMaximo}
             onChange={(e) => setCupoMaximo(e.target.value)}
+            style={inputStyle}
+            onMouseEnter={handleInputMouseEnter}
+            onMouseLeave={handleInputMouseLeave}
+          />
+
+          <input
+            type="number"
+            placeholder="Costo en creditos"
+            value={creditosCosto}
+            onChange={(e) => setCreditosCosto(e.target.value)}
             style={inputStyle}
             onMouseEnter={handleInputMouseEnter}
             onMouseLeave={handleInputMouseLeave}
@@ -2054,7 +2186,7 @@ function App() {
             </div>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
               <strong>Modelo de reserva</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y consume 1 credito por mes.</p>
+              <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y descuenta 9, 10 o el costo en creditos definido por esa clase.</p>
             </div>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
               <strong>Packs mensuales</strong>
@@ -2073,7 +2205,7 @@ function App() {
       >
         <SectionCard
           title="Carga manual de creditos"
-          subtitle="Asigna creditos a alumnas que pagan en efectivo, ajustes o promociones."
+          subtitle="Asigna o descuenta creditos a alumnas que pagan en efectivo, promociones o ajustes."
         >
           <input
             placeholder="Buscar alumna por nombre o email"
@@ -2119,15 +2251,45 @@ function App() {
           </select>
 
           {!adminPackId && (
-            <input
-              type="number"
-              placeholder="Cantidad manual de creditos"
-              value={adminCreditosManual}
-              onChange={(e) => setAdminCreditosManual(e.target.value)}
-              style={inputStyle}
-              onMouseEnter={handleInputMouseEnter}
-              onMouseLeave={handleInputMouseLeave}
-            />
+            <>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+                {[1, 2, 3, -1, -2, -3].map((cantidad) => (
+                  <button
+                    key={cantidad}
+                    type="button"
+                    onClick={() => setAdminCreditosManual(String(cantidad))}
+                    style={{
+                      ...actionBtnStyle,
+                      background: cantidad > 0 ? "rgba(34,197,94,0.14)" : "rgba(239,68,68,0.14)",
+                      color: "white",
+                      border: "1px solid rgba(255,255,255,0.08)"
+                    }}
+                    onMouseEnter={handleSecondaryHoverEnter}
+                    onMouseLeave={handleSecondaryHoverLeave}
+                  >
+                    {cantidad > 0 ? `+${cantidad}` : cantidad}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                placeholder="Cantidad manual de creditos"
+                value={adminCreditosManual}
+                onChange={(e) => setAdminCreditosManual(e.target.value)}
+                style={inputStyle}
+                onMouseEnter={handleInputMouseEnter}
+                onMouseLeave={handleInputMouseLeave}
+              />
+            </>
+          )}
+
+          {selectedAdminUser && (
+            <div style={{ marginBottom: "12px", padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+              <strong>{selectedAdminUser.nombre}</strong>
+              <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                Creditos actuales: {selectedAdminUser.creditos || 0} | Pack: {selectedAdminUser.packActivo?.nombre || "Sin pack"}
+              </p>
+            </div>
           )}
 
           <input
@@ -2220,9 +2382,161 @@ function App() {
     return renderDashboard();
   };
 
+  const renderCreditModal = () => (
+    creditModalOpen && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(2, 6, 23, 0.78)",
+          backdropFilter: "blur(10px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "20px",
+          zIndex: 60
+        }}
+      >
+        <div
+          style={{
+            ...glassCardStyle,
+            width: "100%",
+            maxWidth: "760px",
+            padding: isMobile ? "22px 18px" : "28px",
+            display: "grid",
+            gridTemplateColumns: isTablet ? "1fr" : "0.95fr 1.05fr",
+            gap: "20px"
+          }}
+        >
+          <div>
+            <p style={{ marginTop: 0, color: "#f9a8d4", fontWeight: "900", letterSpacing: "0.6px" }}>
+              MIS CREDITOS
+            </p>
+            <h3 style={{ marginTop: "10px", marginBottom: "10px", fontSize: "30px" }}>
+              Compra tu pack mensual
+            </h3>
+            <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.7 }}>
+              Elige un plan, completa los datos de tu tarjeta y acredita tus creditos al instante.
+              La estructura queda lista para integrar una pasarela real despues.
+            </p>
+
+            <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
+              <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Creditos actuales</strong>
+                <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{user?.creditos || 0}</p>
+              </div>
+              <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Pack activo</strong>
+                <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{user?.packActivo?.nombre || "Sin pack activo"}</p>
+              </div>
+              <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Referencia</strong>
+                <p style={{ margin: "6px 0 0", opacity: 0.72 }}>1 credito equivale a ${VALOR_CREDITO_ARS.toLocaleString("es-AR")} ARS</p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
+              {PACKS_MENSUALES.map((pack) => {
+                const active = selectedPackId === pack.id;
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => setSelectedPackId(pack.id)}
+                    style={{
+                      ...softPanelStyle,
+                      padding: "16px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      border: active ? "1px solid rgba(244,114,182,0.34)" : "1px solid rgba(255,255,255,0.08)",
+                      background: active ? "linear-gradient(180deg, rgba(244,114,182,0.12), rgba(2,6,23,0.92))" : softPanelStyle.background
+                    }}
+                  >
+                    <strong style={{ display: "block", fontSize: "18px" }}>{pack.nombre}</strong>
+                    <p style={{ margin: "8px 0 0", opacity: 0.76 }}>{pack.creditos} creditos - ${pack.precioARS.toLocaleString("es-AR")}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <input
+              placeholder="Nombre del titular"
+              value={cardHolder}
+              onChange={(e) => setCardHolder(e.target.value)}
+              style={inputStyle}
+              onMouseEnter={handleInputMouseEnter}
+              onMouseLeave={handleInputMouseLeave}
+            />
+            <input
+              placeholder="Numero de tarjeta"
+              value={cardNumber}
+              onChange={(e) => setCardNumber(e.target.value)}
+              style={inputStyle}
+              onMouseEnter={handleInputMouseEnter}
+              onMouseLeave={handleInputMouseLeave}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <input
+                placeholder="Vencimiento"
+                value={cardExpiry}
+                onChange={(e) => setCardExpiry(e.target.value)}
+                style={inputStyle}
+                onMouseEnter={handleInputMouseEnter}
+                onMouseLeave={handleInputMouseLeave}
+              />
+              <input
+                placeholder="CVV"
+                value={cardCvv}
+                onChange={(e) => setCardCvv(e.target.value)}
+                style={inputStyle}
+                onMouseEnter={handleInputMouseEnter}
+                onMouseLeave={handleInputMouseLeave}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "6px" }}>
+              <button
+                type="button"
+                onClick={() => setCreditModalOpen(false)}
+                style={{
+                  ...actionBtnStyle,
+                  flex: 1,
+                  background: "#111827",
+                  color: "white",
+                  border: "1px solid #334155"
+                }}
+                onMouseEnter={handleSecondaryHoverEnter}
+                onMouseLeave={handleSecondaryHoverLeave}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => comprarPack(selectedPack)}
+                style={{
+                  ...btnStyle,
+                  flex: 1,
+                  width: "auto",
+                  marginTop: 0
+                }}
+                onMouseEnter={handlePrimaryMouseEnter}
+                onMouseLeave={handlePrimaryMouseLeave}
+              >
+                {comprandoPackId === selectedPack.id ? "Procesando..." : `Comprar ${selectedPack.nombre}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  );
+
   return (
     <>
       <Toaster />
+      {renderCreditModal()}
 
       {confirmDialog.open && (
         <div
@@ -2386,7 +2700,18 @@ function App() {
               </nav>
 
               <div style={{ display: "flex", alignItems: "center", gap: "10px", justifySelf: isMobile ? "center" : "end", flexWrap: "wrap" }}>
-                <Badge text={`${user?.creditos || 0} creditos`} color="#facc15" background="rgba(250,204,21,0.14)" />
+                <button
+                  type="button"
+                  onClick={() => setCreditModalOpen(true)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer"
+                  }}
+                >
+                  <Badge text={`${user?.creditos || 0} creditos`} color="#facc15" background="rgba(250,204,21,0.14)" />
+                </button>
                 <button
                   type="button"
                   onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
