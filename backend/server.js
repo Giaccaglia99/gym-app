@@ -4,6 +4,8 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 require("dotenv").config();
 
 const User = require("./models/user");
@@ -12,6 +14,13 @@ const Reserva = require("./models/Reserva");
 const MovimientoCredito = require("./models/MovimientoCredito");
 
 const app = express();
+const VALOR_CREDITO_ARS = 5000;
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const mpClient = MP_ACCESS_TOKEN ? new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN }) : null;
+const mpPreference = mpClient ? new Preference(mpClient) : null;
+const mpPayment = mpClient ? new Payment(mpClient) : null;
 
 const PACKS_MENSUALES = [
   {
@@ -299,6 +308,90 @@ function getPackById(packId) {
   return PACKS_MENSUALES.find((pack) => pack.id === packId) || null;
 }
 
+function getCompraConfig({ tipo, cantidadCreditos }) {
+  if (tipo === "pack_9") {
+    return {
+      tipoCompra: "pack_9",
+      creditos: 9,
+      montoARS: 45000,
+      pack: PACKS_MENSUALES[0],
+      titulo: "Pack 2 veces por semana"
+    };
+  }
+
+  if (tipo === "pack_10") {
+    return {
+      tipoCompra: "pack_10",
+      creditos: 10,
+      montoARS: 50000,
+      pack: PACKS_MENSUALES[1],
+      titulo: "Pack 3 veces por semana"
+    };
+  }
+
+  if (tipo === "custom") {
+    const creditos = Number(cantidadCreditos);
+
+    if (!Number.isInteger(creditos) || creditos <= 0) {
+      return null;
+    }
+
+    return {
+      tipoCompra: "custom",
+      creditos,
+      montoARS: creditos * VALOR_CREDITO_ARS,
+      pack: null,
+      titulo: `${creditos} creditos personalizados`
+    };
+  }
+
+  return null;
+}
+
+function getMercadoPagoMode() {
+  if (MP_ACCESS_TOKEN.startsWith("TEST-")) {
+    return "test";
+  }
+
+  if (MP_ACCESS_TOKEN.startsWith("APP_USR-")) {
+    return "production";
+  }
+
+  return "unknown";
+}
+
+function normalizePublicUrl(url, fallback) {
+  const value = (url || fallback || "").trim();
+
+  if (!value) {
+    return fallback;
+  }
+
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function getCheckoutBackUrls() {
+  const frontendBase = normalizePublicUrl(FRONTEND_URL, "http://localhost:3000");
+
+  return {
+    success: `${frontendBase}/`,
+    failure: `${frontendBase}/`,
+    pending: `${frontendBase}/`
+  };
+}
+
+function shouldUseAutoReturn() {
+  const frontendBase = normalizePublicUrl(FRONTEND_URL, "http://localhost:3000");
+
+  return !frontendBase.includes("localhost") && !frontendBase.includes("127.0.0.1");
+}
+
+function shouldUseBackUrls() {
+  const frontendBase = normalizePublicUrl(FRONTEND_URL, "http://localhost:3000");
+
+  return !frontendBase.includes("localhost") && !frontendBase.includes("127.0.0.1");
+}
+
 async function registrarMovimiento({
   userId,
   tipo,
@@ -306,17 +399,177 @@ async function registrarMovimiento({
   montoARS = 0,
   descripcion = "",
   pack = null,
-  monthKey = getMonthKey()
+  monthKey = getMonthKey(),
+  paymentId = null,
+  externalReference = null,
+  estado = "aprobado"
 }) {
-  await MovimientoCredito.create({
+  const movimiento = {
     userId,
     tipo,
     creditos,
     montoARS,
     descripcion,
     pack,
-    monthKey
+    monthKey,
+    estado
+  };
+
+  if (paymentId) {
+    movimiento.paymentId = paymentId;
+  }
+
+  if (externalReference) {
+    movimiento.externalReference = externalReference;
+  }
+
+  await MovimientoCredito.create(movimiento);
+}
+
+async function acreditarCompraMercadoPago(payment) {
+  if (String(payment.status) !== "approved") {
+    return { procesado: false, motivo: "Pago no aprobado" };
+  }
+
+  const paymentId = String(payment.id);
+  const yaProcesado = await MovimientoCredito.findOne({
+    paymentId,
+    estado: "aprobado"
   });
+
+  if (yaProcesado) {
+    return { procesado: false, motivo: "Pago ya acreditado" };
+  }
+
+  const metadata = payment.metadata || {};
+  const userId = metadata.userId;
+  const creditos = Number(metadata.creditos);
+  const tipoCompra = metadata.tipoCompra || "custom";
+  const externalReference = payment.external_reference || metadata.externalReference || null;
+
+  if (!userId || !Number.isInteger(creditos) || creditos <= 0) {
+    throw new Error("Metadata de pago invalida");
+  }
+
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw new Error("Usuario del pago no encontrado");
+  }
+
+  const pack = tipoCompra === "pack_9"
+    ? getPackById("pack_2x_semana")
+    : tipoCompra === "pack_10"
+      ? getPackById("pack_3x_semana")
+      : null;
+
+  user.creditos = (user.creditos || 0) + creditos;
+  user.fechaUltimaCompra = new Date();
+  user.mesActivo = getMonthKey();
+
+  if (pack) {
+    user.packActivo = pack;
+  }
+
+  await user.save();
+
+  const movimientoPendiente = externalReference
+    ? await MovimientoCredito.findOne({ externalReference, estado: "pendiente" })
+    : null;
+
+  if (movimientoPendiente) {
+    movimientoPendiente.estado = "aprobado";
+    movimientoPendiente.paymentId = paymentId;
+    movimientoPendiente.descripcion = movimientoPendiente.descripcion || `Compra online aprobada por Mercado Pago`;
+    movimientoPendiente.montoARS = Number(payment.transaction_amount || movimientoPendiente.montoARS || 0);
+    await movimientoPendiente.save();
+  } else {
+    await registrarMovimiento({
+      userId: user._id,
+      tipo: "compra_online",
+      creditos,
+      montoARS: Number(payment.transaction_amount || 0),
+      descripcion: `Compra online aprobada por Mercado Pago`,
+      pack,
+      monthKey: user.mesActivo,
+      paymentId,
+      externalReference,
+      estado: "aprobado"
+    });
+  }
+
+  return { procesado: true, user: buildUserResponse(user) };
+}
+
+async function crearPagoMercadoPagoParaUsuario(user, { tipo, cantidadCreditos }) {
+  const compra = getCompraConfig({ tipo, cantidadCreditos });
+
+  if (!compra) {
+    return null;
+  }
+
+  const externalReference = `lf-${user._id}-${Date.now()}-${crypto.randomUUID()}`;
+  if (!mpPreference) {
+    throw new Error("Mercado Pago no configurado");
+  }
+
+  const preferenceBody = {
+    items: [
+      {
+        title: compra.titulo,
+        quantity: 1,
+        currency_id: "ARS",
+        unit_price: Number(compra.montoARS)
+      }
+    ],
+    payer: {
+      name: user.nombre,
+      email: user.email
+    },
+    external_reference: externalReference,
+    notification_url: `${BACKEND_URL}/webhook/mercadopago`,
+    metadata: {
+      userId: String(user._id),
+      creditos: compra.creditos,
+      tipoCompra: compra.tipoCompra,
+      externalReference
+    }
+  };
+
+  if (shouldUseBackUrls()) {
+    const backUrls = getCheckoutBackUrls();
+    preferenceBody.back_urls = backUrls;
+    preferenceBody.redirect_urls = backUrls;
+  }
+
+  if (shouldUseAutoReturn()) {
+    preferenceBody.auto_return = "approved";
+  }
+
+  const preference = await mpPreference.create({
+    body: preferenceBody
+  });
+
+  await registrarMovimiento({
+    userId: user._id,
+    tipo: "compra_online",
+    creditos: compra.creditos,
+    montoARS: compra.montoARS,
+    descripcion: `Compra iniciada en Mercado Pago - ${compra.titulo}`,
+    pack: compra.pack,
+    monthKey: getMonthKey(),
+    externalReference,
+    estado: "pendiente"
+  });
+
+  return {
+    url: preference.init_point || preference.sandbox_init_point,
+    init_point: preference.init_point,
+    sandbox_init_point: preference.sandbox_init_point,
+    externalReference,
+    creditos: compra.creditos,
+    montoARS: compra.montoARS
+  };
 }
 
 async function buildClasesResponse(monthKey = getMonthKey()) {
@@ -503,42 +756,72 @@ app.get("/mis-movimientos", verificarToken, async (req, res) => {
   res.json(movimientos);
 });
 
+app.post("/crear-pago", verificarToken, async (req, res) => {
+  try {
+    const { tipo, cantidadCreditos } = req.body;
+    const user = await User.findById(req.userId);
+
+    if (!user) {
+      return res.status(404).json({ mensaje: "Usuario no encontrado" });
+    }
+
+    const pago = await crearPagoMercadoPagoParaUsuario(user, { tipo, cantidadCreditos });
+
+    if (!pago) {
+      return res.status(400).json({ mensaje: "Compra invalida" });
+    }
+
+    res.json(pago);
+  } catch (error) {
+    console.log("ERROR CREAR PAGO MP:", {
+      message: error?.message,
+      cause: error?.cause,
+      details: error?.cause?.[0]?.description || error?.cause || error,
+      mpMode: getMercadoPagoMode(),
+      frontendUrl: FRONTEND_URL,
+      backUrls: shouldUseBackUrls() ? getCheckoutBackUrls() : "disabled_for_localhost",
+      autoReturn: shouldUseAutoReturn() ? "approved" : "disabled_for_localhost"
+    });
+    res.status(500).json({
+      mensaje: MP_ACCESS_TOKEN
+        ? "No se pudo iniciar el pago con Mercado Pago"
+        : "Mercado Pago no esta configurado en el backend",
+      error: error?.cause?.[0]?.description || error?.message || "Error desconocido al crear la preferencia"
+    });
+  }
+});
+
 app.post("/comprar-pack", verificarToken, async (req, res) => {
   const { packId } = req.body;
-  const pack = getPackById(packId);
+  const tipo = packId === "pack_2x_semana" ? "pack_9" : packId === "pack_3x_semana" ? "pack_10" : null;
 
-  if (!pack) {
+  if (!tipo) {
     return res.status(400).json({ mensaje: "Pack invalido" });
   }
 
-  const user = await User.findById(req.userId);
+  try {
+    const user = await User.findById(req.userId);
 
-  if (!user) {
-    return res.status(404).json({ mensaje: "Usuario no encontrado" });
+    if (!user) {
+      return res.status(404).json({ mensaje: "Usuario no encontrado" });
+    }
+
+    const pago = await crearPagoMercadoPagoParaUsuario(user, { tipo });
+    return res.json(pago);
+  } catch (error) {
+    console.log("ERROR COMPRA PACK MP:", {
+      message: error?.message,
+      cause: error?.cause,
+      details: error?.cause?.[0]?.description || error?.cause || error,
+      mpMode: getMercadoPagoMode()
+    });
+    return res.status(500).json({
+      mensaje: MP_ACCESS_TOKEN
+        ? "No se pudo iniciar el pago del pack"
+        : "Mercado Pago no esta configurado en el backend",
+      error: error?.cause?.[0]?.description || error?.message || "Error desconocido al crear la preferencia"
+    });
   }
-
-  user.creditos = (user.creditos || 0) + pack.creditos;
-  user.packActivo = pack;
-  user.mesActivo = getMonthKey();
-  user.fechaUltimaCompra = new Date();
-  await user.save();
-
-  await registrarMovimiento({
-    userId: user._id,
-    tipo: "compra_online",
-    creditos: pack.creditos,
-    montoARS: pack.precioARS,
-    descripcion: `Compra online simulada del pack ${pack.nombre}`,
-    pack,
-    monthKey: user.mesActivo
-  });
-
-  res.json({
-    mensaje: "Pack comprado con exito",
-    user: buildUserResponse(user),
-    pack,
-    integracionesDisponibles: ["MercadoPago", "Stripe"]
-  });
 });
 
 app.post("/verificar", async (req, res) => {
@@ -590,6 +873,30 @@ app.post("/reenviar-codigo", async (req, res) => {
   });
 
   res.json({ mensaje: "Codigo reenviado" });
+});
+
+app.post("/webhook/mercadopago", async (req, res) => {
+  try {
+    const paymentId = req.body?.data?.id || req.query["data.id"] || req.query.id || req.body?.id;
+
+    if (!paymentId) {
+      return res.status(200).send("ok");
+    }
+
+    if (!mpPayment) {
+      return res.status(200).send("ok");
+    }
+
+    const payment = await mpPayment.get({
+      id: String(paymentId)
+    });
+    await acreditarCompraMercadoPago(payment);
+
+    return res.status(200).send("ok");
+  } catch (error) {
+    console.log("ERROR WEBHOOK MP:", error?.data || error);
+    return res.status(200).send("ok");
+  }
 });
 
 app.get("/clases", async (req, res) => {
@@ -741,7 +1048,7 @@ app.get("/admin/usuarios", verificarToken, async (req, res) => {
   res.json(usuarios);
 });
 
-app.post("/admin/asignar-creditos", verificarToken, async (req, res) => {
+const ajustarCreditosHandler = async (req, res) => {
   const admin = await User.findById(req.userId);
 
   if (!admin || admin.rol !== "admin") {
@@ -790,7 +1097,10 @@ app.post("/admin/asignar-creditos", verificarToken, async (req, res) => {
     mensaje: "Creditos asignados con exito",
     user: buildUserResponse(user)
   });
-});
+};
+
+app.post("/admin/asignar-creditos", verificarToken, ajustarCreditosHandler);
+app.post("/admin/ajustar-creditos", verificarToken, ajustarCreditosHandler);
 
 app.delete("/clases/:id", verificarToken, async (req, res) => {
   const user = await User.findById(req.userId);

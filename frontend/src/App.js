@@ -483,10 +483,7 @@ function App() {
   const [asignandoCreditos, setAsignandoCreditos] = useState(false);
   const [creditModalOpen, setCreditModalOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState(PACKS_MENSUALES[0].id);
-  const [cardHolder, setCardHolder] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCvv, setCardCvv] = useState("");
+  const [customCreditos, setCustomCreditos] = useState("1");
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
@@ -515,6 +512,8 @@ function App() {
   const clasesDeHoy = clases.filter((clase) => clase.diasSemana?.includes(getTodayWeekday()));
   const selectedPack = PACKS_MENSUALES.find((pack) => pack.id === selectedPackId) || PACKS_MENSUALES[0];
   const selectedAdminUser = adminUsuarios.find((usuario) => usuario._id === adminUserId);
+  const customCreditosNumber = Math.max(Number(customCreditos) || 0, 0);
+  const customMontoARS = customCreditosNumber * VALOR_CREDITO_ARS;
 
   const syncStoredUser = (nextUser) => {
     setUser(nextUser);
@@ -621,6 +620,52 @@ function App() {
   }, [user?._id, esAdmin]);
 
   useEffect(() => {
+    if (!user?._id) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const mpStatus = params.get("status") || params.get("collection_status");
+    const paymentId = params.get("payment_id") || params.get("collection_id");
+
+    if (!mpStatus && !paymentId) {
+      return;
+    }
+
+    api.get("/mis-movimientos")
+      .then((res) => {
+        setMovimientos(res.data);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+
+    api.get("/perfil-plan")
+      .then((res) => {
+        setUser((prevUser) => {
+          const nextUser = {
+            ...(prevUser || {}),
+            ...res.data.user
+          };
+          localStorage.setItem("user", JSON.stringify(nextUser));
+          return nextUser;
+        });
+        setPlanMensual(res.data.planMensual);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+
+    if (mpStatus === "approved") {
+      toast.success("Pago recibido. Tus creditos se actualizaran automaticamente.");
+    } else if (mpStatus === "pending") {
+      toast("Pago pendiente. Te avisaremos cuando se acredite.");
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, [user?._id]);
+
+  useEffect(() => {
     if (user && Object.values(VISTAS_PUBLICAS).includes(vista)) {
       setVista(VISTAS_PRIVADAS.DASHBOARD);
     }
@@ -717,28 +762,40 @@ function App() {
     }
   };
 
-  const comprarPack = async (pack) => {
+  const iniciarPagoMercadoPago = async ({ tipo, pack = null, cantidadCreditos = null }) => {
     try {
-      if (!cardHolder || !cardNumber || !cardExpiry || !cardCvv) {
-        toast.error("Completa los datos de la tarjeta");
+      const compraId = pack?.id || tipo;
+      setComprandoPackId(compraId);
+
+      const payload = { tipo };
+
+      if (tipo === "custom") {
+        if (!cantidadCreditos || Number(cantidadCreditos) <= 0) {
+          toast.error("Ingresa una cantidad valida de creditos");
+          return;
+        }
+
+        payload.cantidadCreditos = Number(cantidadCreditos);
+      }
+
+      const res = await api.post("/crear-pago", payload);
+      const checkoutUrl = res.data.url || res.data.init_point || res.data.sandbox_init_point;
+
+      if (!checkoutUrl) {
+        toast.error("No se recibio la URL de pago");
+        console.log("RESPUESTA MP SIN URL:", res.data);
         return;
       }
 
-      setComprandoPackId(pack.id);
-      const res = await api.post("/comprar-pack", { packId: pack.id });
-      syncStoredUser({
-        ...user,
-        ...res.data.user
-      });
-      await fetchMovimientos();
       setCreditModalOpen(false);
-      setCardHolder("");
-      setCardNumber("");
-      setCardExpiry("");
-      setCardCvv("");
-      toast.success(`Pack activado: ${pack.nombre}`);
+      window.location.href = checkoutUrl;
     } catch (err) {
-      toast.error(err.response?.data?.mensaje || "No se pudo comprar el pack");
+      console.log("ERROR FRONT MP:", err.response?.data || err);
+      toast.error(
+        err.response?.data?.error ||
+        err.response?.data?.mensaje ||
+        "No se pudo realizar el pago con Mercado Pago"
+      );
     } finally {
       setComprandoPackId(null);
     }
@@ -758,7 +815,7 @@ function App() {
         payload.creditos = Number(adminCreditosManual);
       }
 
-      const res = await api.post("/admin/asignar-creditos", payload);
+      const res = await api.post("/admin/ajustar-creditos", payload);
       toast.success("Creditos asignados");
 
       if (String(user?._id) === String(adminUserId)) {
@@ -2253,7 +2310,7 @@ function App() {
           {!adminPackId && (
             <>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
-                {[1, 2, 3, -1, -2, -3].map((cantidad) => (
+                {[1, 2, 5, 9, 10, -1, -2, -5].map((cantidad) => (
                   <button
                     key={cantidad}
                     type="button"
@@ -2396,48 +2453,54 @@ function App() {
           padding: "20px",
           zIndex: 60
         }}
-      >
-        <div
-          style={{
-            ...glassCardStyle,
-            width: "100%",
+        >
+          <div
+            style={{
+              ...glassCardStyle,
+              width: "100%",
             maxWidth: "760px",
             padding: isMobile ? "22px 18px" : "28px",
             display: "grid",
             gridTemplateColumns: isTablet ? "1fr" : "0.95fr 1.05fr",
             gap: "20px"
           }}
-        >
-          <div>
-            <p style={{ marginTop: 0, color: "#f9a8d4", fontWeight: "900", letterSpacing: "0.6px" }}>
-              MIS CREDITOS
-            </p>
-            <h3 style={{ marginTop: "10px", marginBottom: "10px", fontSize: "30px" }}>
-              Compra tu pack mensual
-            </h3>
-            <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.7 }}>
-              Elige un plan, completa los datos de tu tarjeta y acredita tus creditos al instante.
-              La estructura queda lista para integrar una pasarela real despues.
-            </p>
+          >
+            <div>
+              <p style={{ marginTop: 0, color: "#f9a8d4", fontWeight: "900", letterSpacing: "0.6px" }}>
+                MIS CREDITOS
+              </p>
+              <h3 style={{ marginTop: "10px", marginBottom: "10px", fontSize: "30px" }}>
+                Compra con Mercado Pago
+              </h3>
+              <p style={{ margin: 0, opacity: 0.8, lineHeight: 1.7 }}>
+                Comprá tu pack mensual o créditos personalizados y reservá tus clases desde la app.
+                Tus créditos se acreditan automáticamente cuando el pago se aprueba.
+              </p>
 
-            <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
-              <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-                <strong>Creditos actuales</strong>
+              <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
+                <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                  <strong>Creditos actuales</strong>
                 <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{user?.creditos || 0}</p>
               </div>
               <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
                 <strong>Pack activo</strong>
                 <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{user?.packActivo?.nombre || "Sin pack activo"}</p>
               </div>
-              <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-                <strong>Referencia</strong>
-                <p style={{ margin: "6px 0 0", opacity: 0.72 }}>1 credito equivale a ${VALOR_CREDITO_ARS.toLocaleString("es-AR")} ARS</p>
+                <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                  <strong>Referencia</strong>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>1 credito equivale a ${VALOR_CREDITO_ARS.toLocaleString("es-AR")} ARS</p>
+                </div>
+                <div style={{ padding: "14px 16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                  <strong>Pago seguro</strong>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                    El checkout se hace directamente en Mercado Pago. LOLIFIT no pide ni guarda datos de tarjeta.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div>
-            <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
+            <div>
+              <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
               {PACKS_MENSUALES.map((pack) => {
                 const active = selectedPackId === pack.id;
                 return (
@@ -2457,46 +2520,79 @@ function App() {
                     <strong style={{ display: "block", fontSize: "18px" }}>{pack.nombre}</strong>
                     <p style={{ margin: "8px 0 0", opacity: 0.76 }}>{pack.creditos} creditos - ${pack.precioARS.toLocaleString("es-AR")}</p>
                   </button>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
 
-            <input
-              placeholder="Nombre del titular"
-              value={cardHolder}
-              onChange={(e) => setCardHolder(e.target.value)}
-              style={inputStyle}
-              onMouseEnter={handleInputMouseEnter}
-              onMouseLeave={handleInputMouseLeave}
-            />
-            <input
-              placeholder="Numero de tarjeta"
-              value={cardNumber}
-              onChange={(e) => setCardNumber(e.target.value)}
-              style={inputStyle}
-              onMouseEnter={handleInputMouseEnter}
-              onMouseLeave={handleInputMouseLeave}
-            />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <input
-                placeholder="Vencimiento"
-                value={cardExpiry}
-                onChange={(e) => setCardExpiry(e.target.value)}
-                style={inputStyle}
-                onMouseEnter={handleInputMouseEnter}
-                onMouseLeave={handleInputMouseLeave}
-              />
-              <input
-                placeholder="CVV"
-                value={cardCvv}
-                onChange={(e) => setCardCvv(e.target.value)}
-                style={inputStyle}
-                onMouseEnter={handleInputMouseEnter}
-                onMouseLeave={handleInputMouseLeave}
-              />
-            </div>
+              <button
+                type="button"
+                onClick={() => iniciarPagoMercadoPago({
+                  tipo: selectedPack.id === "pack_2x_semana" ? "pack_9" : "pack_10",
+                  pack: selectedPack
+                })}
+                style={{
+                  ...btnStyle,
+                  width: "100%",
+                  marginTop: 0
+                }}
+                onMouseEnter={handlePrimaryMouseEnter}
+                onMouseLeave={handlePrimaryMouseLeave}
+              >
+                {comprandoPackId === selectedPack.id
+                  ? "Redirigiendo..."
+                  : `Pagar pack ${selectedPack.creditos} creditos con Mercado Pago`}
+              </button>
 
-            <div style={{ display: "flex", gap: "10px", marginTop: "6px" }}>
+              <div
+                style={{
+                  ...softPanelStyle,
+                  marginTop: "16px",
+                  padding: "18px"
+                }}
+              >
+                <strong style={{ display: "block", marginBottom: "10px" }}>
+                  Creditos personalizados
+                </strong>
+                <p style={{ marginTop: 0, marginBottom: "12px", opacity: 0.74, lineHeight: 1.6 }}>
+                  También podés comprar la cantidad exacta de créditos que necesites.
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Cantidad de creditos"
+                  value={customCreditos}
+                  onChange={(e) => setCustomCreditos(e.target.value)}
+                  style={inputStyle}
+                  onMouseEnter={handleInputMouseEnter}
+                  onMouseLeave={handleInputMouseLeave}
+                />
+                <div style={{ padding: "12px 14px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", marginBottom: "12px" }}>
+                  <strong>Total estimado</strong>
+                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                    {customCreditosNumber || 0} creditos - ${customMontoARS.toLocaleString("es-AR")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => iniciarPagoMercadoPago({
+                    tipo: "custom",
+                    cantidadCreditos: customCreditosNumber
+                  })}
+                  style={{
+                    ...btnStyle,
+                    width: "100%",
+                    marginTop: 0
+                  }}
+                  onMouseEnter={handlePrimaryMouseEnter}
+                  onMouseLeave={handlePrimaryMouseLeave}
+                >
+                  {comprandoPackId === "custom"
+                    ? "Redirigiendo..."
+                    : "Pagar creditos personalizados con Mercado Pago"}
+                </button>
+              </div>
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
               <button
                 type="button"
                 onClick={() => setCreditModalOpen(false)}
@@ -2511,20 +2607,6 @@ function App() {
                 onMouseLeave={handleSecondaryHoverLeave}
               >
                 Cerrar
-              </button>
-              <button
-                type="button"
-                onClick={() => comprarPack(selectedPack)}
-                style={{
-                  ...btnStyle,
-                  flex: 1,
-                  width: "auto",
-                  marginTop: 0
-                }}
-                onMouseEnter={handlePrimaryMouseEnter}
-                onMouseLeave={handlePrimaryMouseLeave}
-              >
-                {comprandoPackId === selectedPack.id ? "Procesando..." : `Comprar ${selectedPack.nombre}`}
               </button>
             </div>
           </div>

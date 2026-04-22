@@ -24,6 +24,18 @@ const movimientoCreditoSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    paymentId: {
+      type: String,
+      default: undefined
+    },
+    externalReference: {
+      type: String,
+      default: undefined
+    },
+    estado: {
+      type: String,
+      default: "aprobado"
+    },
     pack: {
       id: String,
       nombre: String,
@@ -36,5 +48,8 @@ const movimientoCreditoSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+movimientoCreditoSchema.index({ paymentId: 1 }, { unique: true, sparse: true });
+movimientoCreditoSchema.index({ externalReference: 1, estado: 1 });
 
 module.exports = mongoose.model("MovimientoCredito", movimientoCreditoSchema);

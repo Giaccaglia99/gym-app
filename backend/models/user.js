@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
   password: String,
   creditos: {
     type: Number,
-    default: 10
+    default: 0
   },
   packActivo: {
     id: String,
