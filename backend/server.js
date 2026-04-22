@@ -13,27 +13,9 @@ const app = express();
 
 const CLASES_POR_DEFECTO = [
   {
-    nombre: "Musculacion",
-    profesor: "Profesor a definir",
-    horario: "Lunes, miercoles y viernes de 7:00 a 10:00",
-    fecha: "",
-    hora: "",
-    cupos: 10,
-    inscritos: []
-  },
-  {
-    nombre: "Cardio",
-    profesor: "Profesor a definir",
-    horario: "Lunes, miercoles y viernes de 14:00 a 19:00",
-    fecha: "",
-    hora: "",
-    cupos: 8,
-    inscritos: []
-  },
-  {
     nombre: "Clases personalizadas",
     profesor: "Profesor a definir",
-    horario: "Martes y jueves de 17:00 a 21:00",
+    horario: "Lunes, miercoles y viernes de 7:00 a 10:00 y de 14:00 a 19:00. Martes y jueves de 8:00 a 10:00 y de 18:00 a 22:00",
     fecha: "",
     hora: "",
     cupos: 12,
@@ -50,9 +32,9 @@ const OBJETIVOS_VALIDOS = [
 
 const HORARIOS_PERMITIDOS = {
   1: [["07:00", "10:00"], ["14:00", "19:00"]],
-  2: [["09:00", "12:00"], ["17:00", "21:00"]],
+  2: [["08:00", "10:00"], ["18:00", "22:00"]],
   3: [["07:00", "10:00"], ["14:00", "19:00"]],
-  4: [["09:00", "12:00"], ["17:00", "21:00"]],
+  4: [["08:00", "10:00"], ["18:00", "22:00"]],
   5: [["07:00", "10:00"], ["14:00", "19:00"]]
 };
 
@@ -467,6 +449,11 @@ app.post("/crear-clase", verificarToken, async (req, res) => {
   }
 
   const { nombre, profesor, fecha, hora, cupos } = req.body;
+
+  if (nombre !== "Clases personalizadas") {
+    return res.status(400).json({ mensaje: "Solo se permiten clases personalizadas" });
+  }
+
   const validacion = validarFechaYHora(fecha, hora);
 
   if (!validacion.valido) {
@@ -511,6 +498,11 @@ app.put("/clases/:id", verificarToken, async (req, res) => {
 
   const { id } = req.params;
   const { nombre, profesor, fecha, hora, cupos } = req.body;
+
+  if (nombre !== "Clases personalizadas") {
+    return res.status(400).json({ mensaje: "Solo se permiten clases personalizadas" });
+  }
+
   const validacion = validarFechaYHora(fecha, hora);
 
   if (!validacion.valido) {

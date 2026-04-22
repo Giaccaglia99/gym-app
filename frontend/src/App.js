@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import api from "./services/api";
+import logoImage from "./img/logo.jpeg";
 
 const VISTAS_PUBLICAS = {
   INICIO: "inicio",
@@ -18,8 +19,6 @@ const VISTAS_PRIVADAS = {
 
 const TIEMPO_VERIFICACION = 300;
 const CLASES_DISPONIBLES = [
-  "Musculacion",
-  "Cardio",
   "Clases personalizadas"
 ];
 
@@ -116,9 +115,9 @@ function getHorariosDisponiblesPorFecha(fecha) {
   const dia = new Date(`${fecha}T00:00:00`).getDay();
   const horariosPorDia = {
     1: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
-    2: ["09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"],
+    2: ["08:00", "09:00", "10:00", "18:00", "19:00", "20:00", "21:00", "22:00"],
     3: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"],
-    4: ["09:00", "10:00", "11:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"],
+    4: ["08:00", "09:00", "10:00", "18:00", "19:00", "20:00", "21:00", "22:00"],
     5: ["07:00", "08:00", "09:00", "10:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
   };
 
@@ -236,13 +235,16 @@ function handleCardHoverLeave(e) {
 function BrandLogo() {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-      <div
+      <img
+        src={logoImage}
+        alt="LOLIFIT"
         style={{
           width: "42px",
           height: "42px",
           borderRadius: "14px",
-          background: "linear-gradient(135deg, #f472b6, #ffffff 82%)",
-          boxShadow: "0 14px 30px rgba(244,114,182,0.24)"
+          objectFit: "cover",
+          boxShadow: "0 14px 30px rgba(244,114,182,0.24)",
+          display: "block"
         }}
       />
       <div>
@@ -386,6 +388,26 @@ function Badge({ text, color = "#22c55e", background = "rgba(34,197,94,0.14)" })
   );
 }
 
+function ScrollHint({ text }) {
+  return (
+    <div
+      style={{
+        marginBottom: "16px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "12px",
+        flexWrap: "wrap"
+      }}
+    >
+      <p style={{ margin: 0, opacity: 0.72, lineHeight: 1.6 }}>
+        {text}
+      </p>
+      <Badge text="Desliza horizontalmente" color="#38bdf8" background="rgba(56,189,248,0.14)" />
+    </div>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(getStoredUser());
   const [vista, setVista] = useState(VISTAS_PUBLICAS.INICIO);
@@ -438,10 +460,11 @@ function App() {
   const segundos = tiempo % 60;
   const horariosDisponibles = getHorariosDisponiblesPorFecha(fechaClase);
   const nuevosHorariosDisponibles = getHorariosDisponiblesPorFecha(nuevaFechaClase);
-  const misClases = clases.filter((clase) =>
+  const clasesVisibles = clases.filter((clase) => clase.nombre === "Clases personalizadas");
+  const misClases = clasesVisibles.filter((clase) =>
     clase.inscritos?.some((inscripto) => inscripto._id === user?._id)
   );
-  const metricasDashboard = getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin });
+  const metricasDashboard = getMetricData({ clases: clasesVisibles, misClases, rutinaDeHoy, user, esAdmin });
 
   const fetchClases = async () => {
     try {
@@ -767,7 +790,11 @@ function App() {
           flexDirection: "column",
           gap: "18px",
           transition: "all 0.25s ease",
-          minWidth: 0
+          minWidth: 0,
+          flex: "0 0 auto",
+          width: isMobile ? "84vw" : "360px",
+          maxWidth: "100%",
+          scrollSnapAlign: "start"
         }}
         onMouseEnter={handleCardHoverEnter}
         onMouseLeave={handleCardHoverLeave}
@@ -1589,7 +1616,7 @@ function App() {
           subtitle="Vista rapida de las proximas clases publicadas."
         >
           <div style={{ display: "grid", gap: "12px" }}>
-            {clases.slice(0, 4).map((clase) => (
+            {clasesVisibles.slice(0, 4).map((clase) => (
               <div
                 key={clase._id}
                 style={{
@@ -1617,14 +1644,19 @@ function App() {
         title="Clases"
         subtitle="Reserva facilmente y visualiza toda la agenda del studio con fechas y horarios exactos."
       >
+        <ScrollHint text="Las clases se muestran en una galeria horizontal para que la vista sea mas limpia y rapida de recorrer." />
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: "18px"
+            display: "flex",
+            gap: "18px",
+            overflowX: "auto",
+            overflowY: "hidden",
+            paddingBottom: "10px",
+            scrollSnapType: "x proximity",
+            WebkitOverflowScrolling: "touch"
           }}
         >
-          {clases.map((clase) => renderClaseCard(clase))}
+          {clasesVisibles.map((clase) => renderClaseCard(clase))}
         </div>
       </SectionCard>
     </div>
@@ -1836,11 +1868,11 @@ function App() {
             </div>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
               <strong>Martes y jueves</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>09:00 a 12:00 y 17:00 a 21:00</p>
+              <p style={{ marginBottom: 0, opacity: 0.72 }}>08:00 a 10:00 y 18:00 a 22:00</p>
             </div>
             <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Clases principales</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>Musculacion, Cardio y Clases personalizadas</p>
+              <strong>Clase disponible</strong>
+              <p style={{ marginBottom: 0, opacity: 0.72 }}>Clases personalizadas</p>
             </div>
           </div>
         </SectionCard>
@@ -1850,14 +1882,19 @@ function App() {
         title="Gestion de clases"
         subtitle="Edita, elimina o revisa las personas inscriptas en cada clase publicada."
       >
+        <ScrollHint text="El panel de gestion usa scroll lateral para mantener la administracion compacta sin una pagina demasiado larga." />
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(340px, 1fr))",
-            gap: "18px"
+            display: "flex",
+            gap: "18px",
+            overflowX: "auto",
+            overflowY: "hidden",
+            paddingBottom: "10px",
+            scrollSnapType: "x proximity",
+            WebkitOverflowScrolling: "touch"
           }}
         >
-          {clases.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
+          {clasesVisibles.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
         </div>
       </SectionCard>
     </div>
