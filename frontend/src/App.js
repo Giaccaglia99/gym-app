@@ -264,16 +264,16 @@ function handleCardHoverLeave(e) {
   e.currentTarget.style.boxShadow = "0 18px 45px rgba(2,6,23,0.2)";
 }
 
-function BrandLogo() {
+function BrandLogo({ compact = false }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
       <img
         src={logoImage}
         alt="LOLIFIT"
         style={{
-          width: "42px",
-          height: "42px",
-          borderRadius: "14px",
+          width: compact ? "36px" : "42px",
+          height: compact ? "36px" : "42px",
+          borderRadius: compact ? "12px" : "14px",
           objectFit: "cover",
           boxShadow: "0 14px 30px rgba(244,114,182,0.24)",
           display: "block"
@@ -282,7 +282,7 @@ function BrandLogo() {
       <div>
         <div
           style={{
-            fontSize: "26px",
+            fontSize: compact ? "22px" : "26px",
             fontWeight: "900",
             letterSpacing: "1px",
             background: "linear-gradient(135deg, #f472b6, #ffffff 75%)",
@@ -292,7 +292,7 @@ function BrandLogo() {
         >
           LOLIFIT
         </div>
-        <div style={{ fontSize: "12px", opacity: 0.72, letterSpacing: "2px", textTransform: "uppercase" }}>
+        <div style={{ fontSize: compact ? "10px" : "12px", opacity: 0.72, letterSpacing: compact ? "1.4px" : "2px", textTransform: "uppercase" }}>
           Boutique Fitness
         </div>
       </div>
@@ -324,6 +324,50 @@ function NavButton({ label, active, onClick }) {
     >
       {label}
     </button>
+  );
+}
+
+function MobileDisclosure({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div
+      style={{
+        borderRadius: "18px",
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        overflow: "hidden"
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        style={{
+          width: "100%",
+          background: "transparent",
+          border: "none",
+          color: "white",
+          cursor: "pointer",
+          padding: "14px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          textAlign: "left",
+          fontWeight: "800"
+        }}
+      >
+        <span>{title}</span>
+        <span style={{ opacity: 0.72, fontSize: "18px", lineHeight: 1 }}>
+          {open ? "−" : "+"}
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 16px 16px" }}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -369,7 +413,7 @@ function SectionCard({ title, subtitle, action, children, style }) {
     <div
       style={{
         ...softPanelStyle,
-        padding: "24px",
+        padding: "22px",
         minWidth: 0,
         ...style
       }}
@@ -484,6 +528,7 @@ function App() {
   const [creditModalOpen, setCreditModalOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState(PACKS_MENSUALES[0].id);
   const [customCreditos, setCustomCreditos] = useState("1");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
@@ -500,6 +545,7 @@ function App() {
     ? vista
     : VISTAS_PRIVADAS.DASHBOARD;
   const isMobile = viewportWidth < 768;
+  const isSmallMobile = viewportWidth < 480;
   const isTablet = viewportWidth < 1100;
   const minutos = Math.floor(tiempo / 60);
   const segundos = tiempo % 60;
@@ -509,6 +555,11 @@ function App() {
     clase.inscritos?.some((inscripto) => inscripto._id === user?._id)
   );
   const metricasDashboard = getMetricData({ clases, misClases, rutinaDeHoy, user, esAdmin });
+  const metricasDashboardVisibles = isSmallMobile
+    ? metricasDashboard.slice(0, 4)
+    : isMobile
+      ? metricasDashboard
+      : metricasDashboard;
   const clasesDeHoy = clases.filter((clase) => clase.diasSemana?.includes(getTodayWeekday()));
   const selectedPack = PACKS_MENSUALES.find((pack) => pack.id === selectedPackId) || PACKS_MENSUALES[0];
   const selectedAdminUser = adminUsuarios.find((usuario) => usuario._id === adminUserId);
@@ -670,6 +721,12 @@ function App() {
       setVista(VISTAS_PRIVADAS.DASHBOARD);
     }
   }, [user, vista]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileMenuOpen(false);
+    }
+  }, [isMobile, vista]);
 
   useEffect(() => {
     if (vista !== VISTAS_PUBLICAS.VERIFICAR) {
@@ -1022,14 +1079,14 @@ function App() {
         key={clase._id}
         style={{
           ...softPanelStyle,
-          padding: isMobile ? "18px" : "22px",
+          padding: isSmallMobile ? "16px" : isMobile ? "18px" : "22px",
           display: "flex",
           flexDirection: "column",
-          gap: "18px",
+          gap: isSmallMobile ? "16px" : "18px",
           transition: "all 0.25s ease",
           minWidth: 0,
           flex: "0 0 auto",
-          width: isMobile ? "84vw" : "360px",
+          width: isSmallMobile ? "88vw" : isMobile ? "78vw" : "360px",
           maxWidth: "100%",
           scrollSnapAlign: "start"
         }}
@@ -1041,7 +1098,7 @@ function App() {
             style={{
               display: "grid",
               gap: "10px",
-              padding: isMobile ? "14px" : "18px",
+              padding: isSmallMobile ? "12px" : isMobile ? "14px" : "18px",
               borderRadius: "18px",
               background: "rgba(2,6,23,0.84)",
               border: "1px solid rgba(255,255,255,0.08)",
@@ -1178,7 +1235,11 @@ function App() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(130px, 1fr))",
+                gridTemplateColumns: isSmallMobile
+                  ? "1fr"
+                  : isMobile
+                    ? "repeat(2, minmax(0, 1fr))"
+                    : "repeat(auto-fit, minmax(130px, 1fr))",
                 gap: "12px"
               }}
             >
@@ -1240,46 +1301,78 @@ function App() {
 
             {mostrarAdmin && (
               <>
-                <div
-                  style={{
-                    padding: "16px",
-                    borderRadius: "18px",
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.06)"
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
-                    <strong>Personas inscriptas este mes</strong>
-                    <Badge text={`${inscritos.length} reservas`} />
+                {isMobile ? (
+                  <MobileDisclosure title={`Personas inscriptas (${inscritos.length})`}>
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      {inscritos.length > 0 ? (
+                        inscritos.map((inscripto) => (
+                          <div
+                            key={inscripto._id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              flexDirection: "column",
+                              gap: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "14px",
+                              background: "rgba(2,6,23,0.65)",
+                              border: "1px solid rgba(255,255,255,0.05)",
+                              wordBreak: "break-word"
+                            }}
+                          >
+                            <span>{inscripto.nombre}</span>
+                            <span style={{ opacity: 0.7 }}>{inscripto.email}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p style={{ margin: 0, opacity: 0.72 }}>
+                          Todavia no hay reservas activas para esta clase.
+                        </p>
+                      )}
+                    </div>
+                  </MobileDisclosure>
+                ) : (
+                  <div
+                    style={{
+                      padding: "16px",
+                      borderRadius: "18px",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+                      <strong>Personas inscriptas este mes</strong>
+                      <Badge text={`${inscritos.length} reservas`} />
+                    </div>
+                    <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
+                      {inscritos.length > 0 ? (
+                        inscritos.map((inscripto) => (
+                          <div
+                            key={inscripto._id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              flexDirection: "row",
+                              gap: "12px",
+                              padding: "12px 14px",
+                              borderRadius: "14px",
+                              background: "rgba(2,6,23,0.65)",
+                              border: "1px solid rgba(255,255,255,0.05)",
+                              wordBreak: "break-word"
+                            }}
+                          >
+                            <span>{inscripto.nombre}</span>
+                            <span style={{ opacity: 0.7 }}>{inscripto.email}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p style={{ margin: 0, opacity: 0.72 }}>
+                          Todavia no hay reservas activas para esta clase.
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
-                    {inscritos.length > 0 ? (
-                      inscritos.map((inscripto) => (
-                        <div
-                          key={inscripto._id}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            flexDirection: isMobile ? "column" : "row",
-                            gap: "12px",
-                            padding: "12px 14px",
-                            borderRadius: "14px",
-                            background: "rgba(2,6,23,0.65)",
-                            border: "1px solid rgba(255,255,255,0.05)",
-                            wordBreak: "break-word"
-                          }}
-                        >
-                          <span>{inscripto.nombre}</span>
-                          <span style={{ opacity: 0.7 }}>{inscripto.email}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p style={{ margin: 0, opacity: 0.72 }}>
-                        Todavia no hay reservas activas para esta clase.
-                      </p>
-                    )}
-                  </div>
-                </div>
+                )}
 
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
@@ -1318,18 +1411,18 @@ function App() {
   };
 
   const renderPublicLanding = () => (
-    <div style={{ width: "100%", maxWidth: "1180px", margin: "0 auto", padding: isMobile ? "18px 14px 64px" : "28px 24px 80px", boxSizing: "border-box" }}>
+    <div style={{ width: "100%", maxWidth: "1180px", margin: "0 auto", padding: isSmallMobile ? "14px 12px 44px" : isMobile ? "18px 14px 56px" : "28px 24px 80px", boxSizing: "border-box" }}>
       <header
         style={{
           ...glassCardStyle,
-          padding: isMobile ? "16px" : "18px 24px",
+          padding: isSmallMobile ? "14px 12px" : isMobile ? "16px" : "18px 24px",
           display: "flex",
           flexDirection: isMobile ? "column" : "row",
           justifyContent: "space-between",
           alignItems: "center",
-          gap: "18px",
+          gap: isSmallMobile ? "14px" : "18px",
           position: "sticky",
-          top: "20px",
+          top: isMobile ? "12px" : "20px",
           zIndex: 5
         }}
       >
@@ -1362,22 +1455,22 @@ function App() {
 
       <section
         style={{
-          minHeight: "82vh",
+          minHeight: isMobile ? "auto" : "82vh",
           display: "grid",
           gridTemplateColumns: isTablet ? "1fr" : "1.2fr 0.8fr",
-          gap: "26px",
+          gap: isSmallMobile ? "18px" : isMobile ? "22px" : "26px",
           alignItems: "center",
-          paddingTop: isMobile ? "26px" : "36px"
+          paddingTop: isSmallMobile ? "18px" : isMobile ? "26px" : "36px"
         }}
       >
-        <div style={{ display: "grid", gap: "26px" }}>
+        <div style={{ display: "grid", gap: isSmallMobile ? "18px" : "26px" }}>
           <div>
             <Badge text="Studio boutique femenino" color="#f9a8d4" background="rgba(244,114,182,0.14)" />
             <h1
               style={{
                 marginTop: "22px",
                 marginBottom: "16px",
-                fontSize: isMobile ? "clamp(52px, 18vw, 84px)" : "clamp(58px, 10vw, 118px)",
+                fontSize: isSmallMobile ? "clamp(42px, 17vw, 62px)" : isMobile ? "clamp(52px, 18vw, 84px)" : "clamp(58px, 10vw, 118px)",
                 lineHeight: 0.9,
                 fontWeight: "900",
                 textTransform: "uppercase",
@@ -1389,10 +1482,10 @@ function App() {
             >
               Loli Fit
             </h1>
-            <p style={{ margin: 0, fontSize: isMobile ? "22px" : "28px", fontWeight: "800" }}>
+            <p style={{ margin: 0, fontSize: isSmallMobile ? "20px" : isMobile ? "22px" : "28px", fontWeight: "800" }}>
               Transforma tu cuerpo
             </p>
-            <p style={{ marginTop: "18px", marginBottom: 0, maxWidth: "620px", opacity: 0.82, lineHeight: 1.8 }}>
+            <p style={{ marginTop: isSmallMobile ? "14px" : "18px", marginBottom: 0, maxWidth: "620px", opacity: 0.82, lineHeight: isSmallMobile ? 1.7 : 1.8, fontSize: isSmallMobile ? "14px" : "16px" }}>
               Una experiencia fitness boutique con agenda semanal inteligente, packs mensuales
               y un panel privado pensado para alumnas y administracion.
             </p>
@@ -1405,11 +1498,12 @@ function App() {
               style={{
                 background: "linear-gradient(135deg, #f472b6, #ec4899)",
                 border: "none",
-                padding: "15px 28px",
+                padding: isSmallMobile ? "14px 18px" : "15px 28px",
                 borderRadius: "999px",
                 color: "white",
                 fontWeight: "bold",
-                fontSize: "16px",
+                fontSize: isSmallMobile ? "15px" : "16px",
+                width: isSmallMobile ? "100%" : "auto",
                 cursor: "pointer",
                 boxShadow: "0 18px 40px rgba(236,72,153,0.28)",
                 transition: "all 0.2s ease"
@@ -1432,8 +1526,8 @@ function App() {
           <div
             style={{
               ...softPanelStyle,
-              padding: "22px",
-              minHeight: "230px",
+              padding: isSmallMobile ? "18px" : "22px",
+              minHeight: isSmallMobile ? "auto" : "230px",
               position: "relative",
               overflow: "hidden"
             }}
@@ -1451,10 +1545,10 @@ function App() {
             <p style={{ margin: 0, opacity: 0.68, textTransform: "uppercase", letterSpacing: "1.1px" }}>
               Agenda inteligente
             </p>
-            <h3 style={{ marginTop: "18px", marginBottom: "12px", fontSize: "30px" }}>
+            <h3 style={{ marginTop: "18px", marginBottom: "12px", fontSize: isSmallMobile ? "24px" : "30px", lineHeight: 1.15 }}>
               Sistema de creditos: elegi tu pack mensual y reserva tus clases recurrentes segun el costo de cada turno.
             </h3>
-            <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.7 }}>
+            <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.7, fontSize: isSmallMobile ? "14px" : "16px" }}>
               Los packs mensuales se acreditan en tu cuenta y se usan para reservar tus clases recurrentes con una experiencia mas profesional.
             </p>
           </div>
@@ -1476,8 +1570,8 @@ function App() {
         style={{
           display: "grid",
           gridTemplateColumns: isTablet ? "1fr" : "1.05fr 0.95fr",
-          gap: "26px",
-          marginTop: "26px"
+          gap: isSmallMobile ? "18px" : "26px",
+          marginTop: isSmallMobile ? "18px" : "26px"
         }}
       >
         <SectionCard
@@ -1503,7 +1597,7 @@ function App() {
             style={{
               borderRadius: "18px",
               overflow: "hidden",
-              height: isMobile ? "300px" : "360px",
+              height: isSmallMobile ? "240px" : isMobile ? "300px" : "360px",
               background: "#0f172a",
               border: "1px solid #1e293b"
             }}
@@ -1530,7 +1624,7 @@ function App() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "40px 20px"
+        padding: isSmallMobile ? "18px 12px" : isMobile ? "28px 16px" : "40px 20px"
       }}
     >
       <div
@@ -1545,13 +1639,13 @@ function App() {
       >
         <div
           style={{
-            padding: isMobile ? "28px 22px" : "42px",
+            padding: isSmallMobile ? "22px 16px" : isMobile ? "28px 22px" : "42px",
             background: "linear-gradient(160deg, rgba(244,114,182,0.18), rgba(15,23,42,0.2))",
             borderRight: "1px solid rgba(255,255,255,0.06)",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            gap: "28px"
+            gap: isSmallMobile ? "20px" : "28px"
           }}
         >
           <BrandLogo />
@@ -1564,7 +1658,8 @@ function App() {
               Una experiencia clara, elegante y funcional para alumnas y administracion del studio.
             </p>
           </div>
-          <div style={{ display: "grid", gap: "12px" }}>
+          {!isSmallMobile && (
+            <div style={{ display: "grid", gap: "12px" }}>
             <div style={{ padding: "16px", borderRadius: "18px", background: "rgba(255,255,255,0.04)" }}>
               <strong>Agenda semanal</strong>
               <p style={{ marginBottom: 0, opacity: 0.72, lineHeight: 1.6 }}>
@@ -1577,10 +1672,11 @@ function App() {
                 Los packs mensuales se acreditan en tu cuenta y se usan para reservar tus clases recurrentes.
               </p>
             </div>
-          </div>
+            </div>
+          )}
         </div>
 
-        <div style={{ padding: isMobile ? "28px 18px" : "42px", minWidth: 0 }}>
+        <div style={{ padding: isSmallMobile ? "22px 14px" : isMobile ? "28px 18px" : "42px", minWidth: 0 }}>
           {vista === VISTAS_PUBLICAS.LOGIN && (
             <>
               <h2 style={{ marginTop: 0, fontSize: isMobile ? "30px" : "34px" }}>Bienvenido</h2>
@@ -1736,14 +1832,14 @@ function App() {
   );
 
   const renderDashboard = () => (
-    <div style={{ display: "grid", gap: "26px" }}>
+    <div style={{ display: "grid", gap: isSmallMobile ? "18px" : "26px" }}>
       <section
         style={{
           ...glassCardStyle,
-          padding: isMobile ? "22px 18px" : "30px",
+          padding: isSmallMobile ? "18px 14px" : isMobile ? "22px 18px" : "30px",
           display: "grid",
           gridTemplateColumns: isTablet ? "1fr" : "1.1fr 0.9fr",
-          gap: "22px"
+          gap: isSmallMobile ? "16px" : "22px"
         }}
       >
         <div>
@@ -1798,11 +1894,11 @@ function App() {
       <section
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-          gap: "18px"
+          gridTemplateColumns: isSmallMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(auto-fit, minmax(210px, 1fr))",
+          gap: isSmallMobile ? "12px" : "18px"
         }}
       >
-        {metricasDashboard.map((metrica) => (
+        {metricasDashboardVisibles.map((metrica) => (
           <StatCard
             key={metrica.title}
             title={metrica.title}
@@ -1908,7 +2004,7 @@ function App() {
         <div
           style={{
             display: "flex",
-            gap: "18px",
+            gap: isSmallMobile ? "14px" : "18px",
             overflowX: "auto",
             overflowY: "hidden",
             paddingBottom: "10px",
@@ -1923,7 +2019,7 @@ function App() {
               style={{
                 ...softPanelStyle,
                 padding: "18px",
-                minWidth: isMobile ? "84vw" : "320px"
+                minWidth: isSmallMobile ? "88vw" : isMobile ? "78vw" : "320px"
               }}
             >
               No hay clases cargadas en este grupo todavia.
@@ -1938,22 +2034,41 @@ function App() {
             title="Agenda semanal"
             subtitle="Reserva un bloque recurrente y quedas anotada automaticamente en todas las clases del mes para ese conjunto de dias y horario."
           >
-            <div style={{ display: "grid", gap: "26px" }}>
-              <div>
-                <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
-                  Lunes / Miercoles / Viernes
-                </h3>
-                <ScrollHint text="Clases agrupadas para el bloque Lunes / Miercoles / Viernes." />
-                {renderFilaClases(clasesLunesMiercolesViernes)}
-              </div>
+            <div style={{ display: "grid", gap: isSmallMobile ? "16px" : "26px" }}>
+              {isMobile ? (
+                <>
+                  <MobileDisclosure title="Lunes / Miercoles / Viernes" defaultOpen>
+                    <div style={{ marginTop: "4px" }}>
+                      <ScrollHint text="Clases agrupadas para el bloque Lunes / Miercoles / Viernes." />
+                      {renderFilaClases(clasesLunesMiercolesViernes)}
+                    </div>
+                  </MobileDisclosure>
+                  <MobileDisclosure title="Martes / Jueves">
+                    <div style={{ marginTop: "4px" }}>
+                      <ScrollHint text="Clases agrupadas para el bloque Martes / Jueves." />
+                      {renderFilaClases(clasesMartesJueves)}
+                    </div>
+                  </MobileDisclosure>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
+                      Lunes / Miercoles / Viernes
+                    </h3>
+                    <ScrollHint text="Clases agrupadas para el bloque Lunes / Miercoles / Viernes." />
+                    {renderFilaClases(clasesLunesMiercolesViernes)}
+                  </div>
 
-              <div>
-                <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
-                  Martes / Jueves
-                </h3>
-                <ScrollHint text="Clases agrupadas para el bloque Martes / Jueves." />
-                {renderFilaClases(clasesMartesJueves)}
-              </div>
+                  <div>
+                    <h3 style={{ marginTop: 0, marginBottom: "12px", fontSize: "22px" }}>
+                      Martes / Jueves
+                    </h3>
+                    <ScrollHint text="Clases agrupadas para el bloque Martes / Jueves." />
+                    {renderFilaClases(clasesMartesJueves)}
+                  </div>
+                </>
+              )}
             </div>
           </SectionCard>
         </div>
@@ -1962,7 +2077,7 @@ function App() {
   );
 
   const renderPerfil = () => (
-    <div style={{ display: "grid", gap: "24px" }}>
+    <div style={{ display: "grid", gap: isSmallMobile ? "18px" : "24px" }}>
       <section
         style={{
           display: "grid",
@@ -1971,7 +2086,7 @@ function App() {
         }}
       >
         <SectionCard title="Perfil" subtitle="Tus datos principales dentro de la plataforma LOLIFIT.">
-          <div style={{ display: "grid", gap: "14px" }}>
+          <div style={{ display: "grid", gap: isSmallMobile ? "12px" : "14px" }}>
             <div
               style={{
                 width: "76px",
@@ -2011,7 +2126,7 @@ function App() {
               <p style={{ margin: 0, opacity: 0.65 }}>Reservas activas</p>
               <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
                 {misClases.length > 0 ? (
-                  misClases.map((clase) => (
+                  misClases.slice(0, isSmallMobile ? 3 : misClases.length).map((clase) => (
                     <div key={clase._id} style={{ padding: "12px 14px", borderRadius: "14px", background: "rgba(255,255,255,0.04)" }}>
                       {formatClaseResumen(clase)}
                     </div>
@@ -2020,7 +2135,12 @@ function App() {
                   <div style={{ padding: "12px 14px", borderRadius: "14px", background: "rgba(255,255,255,0.04)" }}>
                     Reserva activa: Ninguna
                   </div>
-                )}
+              )}
+              {isSmallMobile && misClases.length > 3 && (
+                <p style={{ margin: 0, opacity: 0.7 }}>
+                  +{misClases.length - 3} reservas mas activas.
+                </p>
+              )}
               </div>
             </div>
           </div>
@@ -2072,60 +2192,111 @@ function App() {
             </button>
           </div>
 
-          <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
-            <h3 style={{ margin: 0, fontSize: "20px" }}>Historial reciente</h3>
-            {movimientos.length > 0 ? (
-              movimientos.slice(0, 5).map((movimiento) => (
-                <div
-                  key={movimiento._id}
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "14px",
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.05)"
-                  }}
-                >
-                  <strong>{movimiento.descripcion || movimiento.tipo}</strong>
-                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
-                    {movimiento.creditos > 0 ? "+" : ""}{movimiento.creditos} creditos
-                    {movimiento.montoARS ? ` - $${movimiento.montoARS.toLocaleString("es-AR")}` : ""}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p style={{ margin: 0, opacity: 0.72 }}>Todavia no hay movimientos cargados.</p>
-            )}
-          </div>
+          {isMobile ? (
+            <>
+              <div style={{ marginTop: "18px" }}>
+                <MobileDisclosure title="Historial reciente">
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {movimientos.length > 0 ? (
+                      movimientos.slice(0, isSmallMobile ? 3 : 5).map((movimiento) => (
+                        <div
+                          key={movimiento._id}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "14px",
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.05)"
+                          }}
+                        >
+                          <strong>{movimiento.descripcion || movimiento.tipo}</strong>
+                          <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                            {movimiento.creditos > 0 ? "+" : ""}{movimiento.creditos} creditos
+                            {movimiento.montoARS ? ` - $${movimiento.montoARS.toLocaleString("es-AR")}` : ""}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p style={{ margin: 0, opacity: 0.72 }}>Todavia no hay movimientos cargados.</p>
+                    )}
+                  </div>
+                </MobileDisclosure>
+              </div>
 
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "18px",
-              borderRadius: "18px",
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.06)"
-            }}
-          >
-            <p style={{ marginTop: 0, opacity: 0.65, textTransform: "uppercase", fontSize: "12px" }}>
-              Rutina de hoy
-            </p>
-            <h3 style={{ marginTop: "10px", marginBottom: "10px", fontSize: "28px" }}>
-              {rutinaDeHoy?.titulo || "Sin rutina generada"}
-            </h3>
-            <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.8 }}>
-              {rutinaDeHoy?.detalle || "Actualiza tu objetivo para generar o renovar tu plan mensual."}
-            </p>
-            <div style={{ marginTop: "16px" }}>
-              <Badge text={`Foco: ${rutinaDeHoy?.foco || "Pendiente"}`} />
-            </div>
-          </div>
+              <div style={{ marginTop: "18px" }}>
+                <MobileDisclosure title={`Rutina de hoy: ${rutinaDeHoy?.titulo || "Pendiente"}`} defaultOpen>
+                  <div
+                    style={{
+                      padding: "2px 0 0"
+                    }}
+                  >
+                    <p style={{ marginTop: 0, opacity: 0.82, lineHeight: 1.8 }}>
+                      {rutinaDeHoy?.detalle || "Actualiza tu objetivo para generar o renovar tu plan mensual."}
+                    </p>
+                    <div style={{ marginTop: "12px" }}>
+                      <Badge text={`Foco: ${rutinaDeHoy?.foco || "Pendiente"}`} />
+                    </div>
+                  </div>
+                </MobileDisclosure>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginTop: "18px", display: "grid", gap: "10px" }}>
+                <h3 style={{ margin: 0, fontSize: "20px" }}>Historial reciente</h3>
+                {movimientos.length > 0 ? (
+                  movimientos.slice(0, 5).map((movimiento) => (
+                    <div
+                      key={movimiento._id}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: "14px",
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.05)"
+                      }}
+                    >
+                      <strong>{movimiento.descripcion || movimiento.tipo}</strong>
+                      <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                        {movimiento.creditos > 0 ? "+" : ""}{movimiento.creditos} creditos
+                        {movimiento.montoARS ? ` - $${movimiento.montoARS.toLocaleString("es-AR")}` : ""}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p style={{ margin: 0, opacity: 0.72 }}>Todavia no hay movimientos cargados.</p>
+                )}
+              </div>
+
+              <div
+                style={{
+                  marginTop: "18px",
+                  padding: "18px",
+                  borderRadius: "18px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.06)"
+                }}
+              >
+                <p style={{ marginTop: 0, opacity: 0.65, textTransform: "uppercase", fontSize: "12px" }}>
+                  Rutina de hoy
+                </p>
+                <h3 style={{ marginTop: "10px", marginBottom: "10px", fontSize: "28px" }}>
+                  {rutinaDeHoy?.titulo || "Sin rutina generada"}
+                </h3>
+                <p style={{ margin: 0, opacity: 0.82, lineHeight: 1.8 }}>
+                  {rutinaDeHoy?.detalle || "Actualiza tu objetivo para generar o renovar tu plan mensual."}
+                </p>
+                <div style={{ marginTop: "16px" }}>
+                  <Badge text={`Foco: ${rutinaDeHoy?.foco || "Pendiente"}`} />
+                </div>
+              </div>
+            </>
+          )}
         </SectionCard>
       </section>
     </div>
   );
 
   const renderAdmin = () => (
-    <div style={{ display: "grid", gap: "24px" }}>
+    <div style={{ display: "grid", gap: isSmallMobile ? "18px" : "24px" }}>
       <section
         style={{
           display: "grid",
@@ -2228,29 +2399,52 @@ function App() {
           </button>
         </SectionCard>
 
-        <SectionCard
-          title="Reglas de agenda"
-          subtitle="La administracion trabaja sobre una grilla semanal fija y packs mensuales."
-        >
-          <div style={{ display: "grid", gap: "12px" }}>
-            <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Lunes, miercoles y viernes</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>07:00 a 10:00 y 14:00 a 19:00</p>
+        {isMobile ? (
+          <MobileDisclosure title="Reglas de agenda" defaultOpen>
+            <div style={{ display: "grid", gap: "12px" }}>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Lunes, miercoles y viernes</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>07:00 a 10:00 y 14:00 a 19:00</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Martes y jueves</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>08:00 a 10:00 y 18:00 a 22:00</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Modelo de reserva</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y descuenta 9, 10 o el costo en creditos definido por esa clase.</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Packs mensuales</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>2 veces por semana: 9 creditos por $45.000. 3 veces por semana: 10 creditos por $50.000.</p>
+              </div>
             </div>
-            <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Martes y jueves</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>08:00 a 10:00 y 18:00 a 22:00</p>
+          </MobileDisclosure>
+        ) : (
+          <SectionCard
+            title="Reglas de agenda"
+            subtitle="La administracion trabaja sobre una grilla semanal fija y packs mensuales."
+          >
+            <div style={{ display: "grid", gap: "12px" }}>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Lunes, miercoles y viernes</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>07:00 a 10:00 y 14:00 a 19:00</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Martes y jueves</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>08:00 a 10:00 y 18:00 a 22:00</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Modelo de reserva</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y descuenta 9, 10 o el costo en creditos definido por esa clase.</p>
+              </div>
+              <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
+                <strong>Packs mensuales</strong>
+                <p style={{ marginBottom: 0, opacity: 0.72 }}>2 veces por semana: 9 creditos por $45.000. 3 veces por semana: 10 creditos por $50.000.</p>
+              </div>
             </div>
-            <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Modelo de reserva</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>Cada alumna reserva un bloque semanal y descuenta 9, 10 o el costo en creditos definido por esa clase.</p>
-            </div>
-            <div style={{ padding: "16px", borderRadius: "16px", background: "rgba(255,255,255,0.04)" }}>
-              <strong>Packs mensuales</strong>
-              <p style={{ marginBottom: 0, opacity: 0.72 }}>2 veces por semana: 9 creditos por $45.000. 3 veces por semana: 10 creditos por $50.000.</p>
-            </div>
-          </div>
-        </SectionCard>
+          </SectionCard>
+        )}
       </section>
 
       <section
@@ -2310,7 +2504,7 @@ function App() {
           {!adminPackId && (
             <>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
-                {[1, 2, 5, 9, 10, -1, -2, -5].map((cantidad) => (
+                {(isSmallMobile ? [1, 2, 5, -1, -2] : [1, 2, 5, 9, 10, -1, -2, -5]).map((cantidad) => (
                   <button
                     key={cantidad}
                     type="button"
@@ -2370,56 +2564,106 @@ function App() {
           </button>
         </SectionCard>
 
-        <SectionCard
-          title="Estado de alumnas"
-          subtitle="Vista rapida de creditos y pack activo para facilitar la atencion en el local."
-        >
-          <div style={{ display: "grid", gap: "10px" }}>
-            {adminUsuarios
-              .filter((usuario) =>
-                `${usuario.nombre} ${usuario.email}`.toLowerCase().includes(adminSearch.toLowerCase())
-              )
-              .slice(0, 8)
-              .map((usuario) => (
-                <div
-                  key={usuario._id}
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: "16px",
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.05)"
-                  }}
-                >
-                  <strong>{usuario.nombre}</strong>
-                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{usuario.email}</p>
-                  <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
-                    Creditos: {usuario.creditos || 0} | Pack: {usuario.packActivo?.nombre || "Sin pack"}
-                  </p>
-                </div>
-              ))}
-          </div>
-        </SectionCard>
+        {isMobile ? (
+          <MobileDisclosure title="Estado de alumnas">
+            <div style={{ display: "grid", gap: "10px" }}>
+              {adminUsuarios
+                .filter((usuario) =>
+                  `${usuario.nombre} ${usuario.email}`.toLowerCase().includes(adminSearch.toLowerCase())
+                )
+                .slice(0, isSmallMobile ? 4 : 6)
+                .map((usuario) => (
+                  <div
+                    key={usuario._id}
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: "16px",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.05)"
+                    }}
+                  >
+                    <strong>{usuario.nombre}</strong>
+                    <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{usuario.email}</p>
+                    <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                      Creditos: {usuario.creditos || 0} | Pack: {usuario.packActivo?.nombre || "Sin pack"}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </MobileDisclosure>
+        ) : (
+          <SectionCard
+            title="Estado de alumnas"
+            subtitle="Vista rapida de creditos y pack activo para facilitar la atencion en el local."
+          >
+            <div style={{ display: "grid", gap: "10px" }}>
+              {adminUsuarios
+                .filter((usuario) =>
+                  `${usuario.nombre} ${usuario.email}`.toLowerCase().includes(adminSearch.toLowerCase())
+                )
+                .slice(0, 8)
+                .map((usuario) => (
+                  <div
+                    key={usuario._id}
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: "16px",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.05)"
+                    }}
+                  >
+                    <strong>{usuario.nombre}</strong>
+                    <p style={{ margin: "6px 0 0", opacity: 0.72 }}>{usuario.email}</p>
+                    <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+                      Creditos: {usuario.creditos || 0} | Pack: {usuario.packActivo?.nombre || "Sin pack"}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </SectionCard>
+        )}
       </section>
 
-      <SectionCard
-        title="Gestion de clases"
-        subtitle="Edita, elimina o revisa las personas inscriptas en cada plantilla semanal."
-      >
-        <ScrollHint text="La gestion usa scroll lateral para mantener la administracion compacta y facil de navegar." />
-        <div
-          style={{
-            display: "flex",
-            gap: "18px",
-            overflowX: "auto",
-            overflowY: "hidden",
-            paddingBottom: "10px",
-            scrollSnapType: "x proximity",
-            WebkitOverflowScrolling: "touch"
-          }}
+      {isMobile ? (
+        <MobileDisclosure title="Gestion de clases">
+          <div style={{ marginTop: "4px" }}>
+            <ScrollHint text="La gestion usa scroll lateral para mantener la administracion compacta y facil de navegar." />
+            <div
+              style={{
+                display: "flex",
+                gap: "18px",
+                overflowX: "auto",
+                overflowY: "hidden",
+                paddingBottom: "10px",
+                scrollSnapType: "x proximity",
+                WebkitOverflowScrolling: "touch"
+              }}
+            >
+              {clases.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
+            </div>
+          </div>
+        </MobileDisclosure>
+      ) : (
+        <SectionCard
+          title="Gestion de clases"
+          subtitle="Edita, elimina o revisa las personas inscriptas en cada plantilla semanal."
         >
-          {clases.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
-        </div>
-      </SectionCard>
+          <ScrollHint text="La gestion usa scroll lateral para mantener la administracion compacta y facil de navegar." />
+          <div
+            style={{
+              display: "flex",
+              gap: "18px",
+              overflowX: "auto",
+              overflowY: "hidden",
+              paddingBottom: "10px",
+              scrollSnapType: "x proximity",
+              WebkitOverflowScrolling: "touch"
+            }}
+          >
+            {clases.map((clase) => renderClaseCard(clase, { mostrarAdmin: true }))}
+          </div>
+        </SectionCard>
+      )}
     </div>
   );
 
@@ -2458,12 +2702,14 @@ function App() {
             style={{
               ...glassCardStyle,
               width: "100%",
-            maxWidth: "760px",
-            padding: isMobile ? "22px 18px" : "28px",
-            display: "grid",
-            gridTemplateColumns: isTablet ? "1fr" : "0.95fr 1.05fr",
-            gap: "20px"
-          }}
+              maxWidth: isSmallMobile ? "100%" : "760px",
+              maxHeight: isMobile ? "88vh" : "none",
+              overflowY: isMobile ? "auto" : "visible",
+              padding: isSmallMobile ? "18px 14px" : isMobile ? "22px 18px" : "28px",
+              display: "grid",
+              gridTemplateColumns: isTablet ? "1fr" : "0.95fr 1.05fr",
+              gap: isSmallMobile ? "16px" : "20px"
+            }}
           >
             <div>
               <p style={{ marginTop: 0, color: "#f9a8d4", fontWeight: "900", letterSpacing: "0.6px" }}>
@@ -2592,7 +2838,7 @@ function App() {
                 </button>
               </div>
 
-            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px", flexDirection: isSmallMobile ? "column" : "row" }}>
               <button
                 type="button"
                 onClick={() => setCreditModalOpen(false)}
@@ -2641,7 +2887,7 @@ function App() {
               background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98))",
               border: "1px solid rgba(255,255,255,0.08)",
               borderRadius: "22px",
-              padding: "24px",
+              padding: isSmallMobile ? "18px 14px" : "24px",
               boxShadow: "0 30px 80px rgba(0,0,0,0.45)"
             }}
           >
@@ -2655,7 +2901,7 @@ function App() {
               {confirmDialog.message}
             </p>
 
-            <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
+            <div style={{ display: "flex", gap: "12px", marginTop: "24px", flexDirection: isSmallMobile ? "column" : "row" }}>
               <button
                 type="button"
                 onClick={cerrarConfirmDialog}
@@ -2708,14 +2954,14 @@ function App() {
           rel="noreferrer"
           style={{
             position: "fixed",
-            right: "24px",
-            bottom: "24px",
+            right: isSmallMobile ? "14px" : "24px",
+            bottom: isSmallMobile ? "14px" : "24px",
             zIndex: 20,
             background: "#22c55e",
             color: "white",
             textDecoration: "none",
-            width: "58px",
-            height: "58px",
+            width: isSmallMobile ? "52px" : "58px",
+            height: isSmallMobile ? "52px" : "58px",
             borderRadius: "999px",
             display: "flex",
             alignItems: "center",
@@ -2738,50 +2984,52 @@ function App() {
             {vista !== VISTAS_PUBLICAS.INICIO && renderAuth()}
           </>
         ) : (
-          <div style={{ width: "100%", maxWidth: "1380px", margin: "0 auto", padding: isMobile ? "16px 12px 48px" : "20px 24px 60px", boxSizing: "border-box" }}>
+          <div style={{ width: "100%", maxWidth: "1380px", margin: "0 auto", padding: isSmallMobile ? "10px 10px 34px" : isMobile ? "16px 12px 48px" : "20px 24px 60px", boxSizing: "border-box" }}>
             <header
               style={{
                 ...glassCardStyle,
-                padding: isMobile ? "16px" : "18px 24px",
+                padding: isSmallMobile ? "12px 10px" : isMobile ? "16px" : "18px 24px",
                 display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "1fr auto 1fr",
+                gridTemplateColumns: isMobile ? "1fr auto" : "1fr auto 1fr",
                 alignItems: "center",
-                gap: "18px",
+                gap: isSmallMobile ? "12px" : "18px",
                 position: "sticky",
-                top: "20px",
+                top: isSmallMobile ? "8px" : "20px",
                 zIndex: 8
               }}
             >
-              <div style={{ justifySelf: isMobile ? "center" : "start" }}>
-                <BrandLogo />
+              <div style={{ justifySelf: "start", minWidth: 0 }}>
+                <BrandLogo compact={isMobile} />
               </div>
 
-              <nav style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "center", minWidth: 0 }}>
-                <NavButton
-                  label="Inicio"
-                  active={vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD}
-                  onClick={() => setVista(VISTAS_PRIVADAS.DASHBOARD)}
-                />
-                <NavButton
-                  label="Clases"
-                  active={vistaPrivadaActiva === VISTAS_PRIVADAS.CLASES}
-                  onClick={() => setVista(VISTAS_PRIVADAS.CLASES)}
-                />
-                <NavButton
-                  label="Perfil"
-                  active={vistaPrivadaActiva === VISTAS_PRIVADAS.PERFIL}
-                  onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
-                />
-                {esAdmin && (
+              {!isMobile && (
+                <nav style={{ display: "flex", alignItems: "center", gap: isSmallMobile ? "8px" : "10px", flexWrap: "wrap", justifyContent: "center", minWidth: 0 }}>
                   <NavButton
-                    label="Admin"
-                    active={vistaPrivadaActiva === VISTAS_PRIVADAS.ADMIN}
-                    onClick={() => setVista(VISTAS_PRIVADAS.ADMIN)}
+                    label="Inicio"
+                    active={vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD}
+                    onClick={() => setVista(VISTAS_PRIVADAS.DASHBOARD)}
                   />
-                )}
-              </nav>
+                  <NavButton
+                    label="Clases"
+                    active={vistaPrivadaActiva === VISTAS_PRIVADAS.CLASES}
+                    onClick={() => setVista(VISTAS_PRIVADAS.CLASES)}
+                  />
+                  <NavButton
+                    label="Perfil"
+                    active={vistaPrivadaActiva === VISTAS_PRIVADAS.PERFIL}
+                    onClick={() => setVista(VISTAS_PRIVADAS.PERFIL)}
+                  />
+                  {esAdmin && (
+                    <NavButton
+                      label="Admin"
+                      active={vistaPrivadaActiva === VISTAS_PRIVADAS.ADMIN}
+                      onClick={() => setVista(VISTAS_PRIVADAS.ADMIN)}
+                    />
+                  )}
+                </nav>
+              )}
 
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", justifySelf: isMobile ? "center" : "end", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: isSmallMobile ? "8px" : "10px", justifySelf: isMobile ? "center" : "end", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={() => setCreditModalOpen(true)}
@@ -2820,7 +3068,74 @@ function App() {
                 >
                   {userInitials}
                 </button>
+                {isMobile && (
+                  <button
+                    type="button"
+                    onClick={() => setMobileMenuOpen((prev) => !prev)}
+                    style={{
+                      width: isSmallMobile ? "42px" : "46px",
+                      height: isSmallMobile ? "42px" : "46px",
+                      borderRadius: "14px",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: "20px",
+                      fontWeight: "900"
+                    }}
+                  >
+                    {mobileMenuOpen ? "×" : "☰"}
+                  </button>
+                )}
               </div>
+
+              {isMobile && mobileMenuOpen && (
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "grid",
+                    gap: "10px",
+                    paddingTop: "6px"
+                  }}
+                >
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px" }}>
+                    <NavButton
+                      label="Inicio"
+                      active={vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD}
+                      onClick={() => {
+                        setVista(VISTAS_PRIVADAS.DASHBOARD);
+                        setMobileMenuOpen(false);
+                      }}
+                    />
+                    <NavButton
+                      label="Clases"
+                      active={vistaPrivadaActiva === VISTAS_PRIVADAS.CLASES}
+                      onClick={() => {
+                        setVista(VISTAS_PRIVADAS.CLASES);
+                        setMobileMenuOpen(false);
+                      }}
+                    />
+                    <NavButton
+                      label="Perfil"
+                      active={vistaPrivadaActiva === VISTAS_PRIVADAS.PERFIL}
+                      onClick={() => {
+                        setVista(VISTAS_PRIVADAS.PERFIL);
+                        setMobileMenuOpen(false);
+                      }}
+                    />
+                    {esAdmin && (
+                      <NavButton
+                        label="Admin"
+                        active={vistaPrivadaActiva === VISTAS_PRIVADAS.ADMIN}
+                        onClick={() => {
+                          setVista(VISTAS_PRIVADAS.ADMIN);
+                          setMobileMenuOpen(false);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </header>
 
             {vistaPrivadaActiva === VISTAS_PRIVADAS.DASHBOARD && (
@@ -2842,7 +3157,7 @@ function App() {
               </div>
             )}
 
-            <main style={{ marginTop: "22px" }}>
+            <main style={{ marginTop: isSmallMobile ? "16px" : "22px" }}>
               {renderPrivateContent()}
             </main>
           </div>
